@@ -1,4 +1,3 @@
-// app/admin/link-history/page.tsx
 'use client'
 
 import React, { useEffect, useState, useMemo } from 'react'
@@ -14,8 +13,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { ClipboardCopyIcon, PlusIcon, HomeIcon } from 'lucide-react'
+import { ClipboardCopyIcon, PlusIcon, HomeIcon, TrashIcon } from 'lucide-react'
 import api from '@/lib/axios'
+import Swal from 'sweetalert2'  // Import SweetAlert2
 
 interface LinkItem {
   _id: string
@@ -82,6 +82,39 @@ export default function LinkHistory() {
         setCreatingLink(false)
         setLinkSuccess(null)
       })
+  }
+
+  // delete link handler with SweetAlert2
+  const handleDeleteLink = (linkId: string) => {
+    Swal.fire({
+      title: 'Are you sure?',
+      text: 'You will not be able to revert this!',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, delete it!',
+    }).then((result) => {
+      if (result.isConfirmed) {
+        api
+          .post('/admin/links/delete', { linkId })
+          .then(() => {
+            // Remove the deleted link from the state
+            setLinks((prevLinks) => prevLinks.filter((link) => link._id !== linkId))
+            Swal.fire({
+              title: 'Deleted!',
+              text: 'The link has been deleted.',
+              icon: 'success',
+              timer: 1500,
+              showConfirmButton: false,
+            })
+          })
+          .catch(() => {
+            setError('Failed to delete link.')
+            Swal.fire('Error!', 'There was an issue deleting the link.', 'error')
+          })
+      }
+    })
   }
 
   // derive created-at
@@ -194,12 +227,21 @@ export default function LinkHistory() {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                   {getCreatedAt(link._id)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 flex gap-2">
                   <Button
                     variant="outline"
                     className="flex items-center space-x-1"
                     onClick={() => router.push(`/admin/link-history/view-link?id=${link._id}`)}
-                  > View Links
+                  >
+                    View Links
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex items-center space-x-1 text-red-500"
+                    onClick={() => handleDeleteLink(link._id)}
+                  >
+                    <TrashIcon className="h-4 w-4" />
+                    <span>Delete</span>
                   </Button>
                 </td>
               </tr>

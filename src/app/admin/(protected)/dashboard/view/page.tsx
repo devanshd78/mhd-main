@@ -47,7 +47,7 @@ export default function SubmissionsPage() {
     setLoading(true)
     api.post('/admin/employees/links/entries', {
       linkId,
-      employeeId:empId,
+      employeeId: empId,
       page: p,
       limit: PAGE_SIZE,
     })
@@ -86,22 +86,22 @@ export default function SubmissionsPage() {
       ) : (
         <Card className="mt-4">
           <CardContent className="p-0 overflow-x-auto">
-            <Table className="min-w-full">
+            <Table className="min-w-full table-auto">
               <TableHeader className="bg-gray-100">
                 <TableRow>
-                  <TH>Name</TH>
-                  <TH>UPI ID</TH>
-                  <TH>Notes</TH>
-                  <TH className="text-right">Amount &amp; Date</TH>
+                  <TH className="px-4 py-2 text-center">Name</TH>
+                  <TH className="px-4 py-2 text-center">UPI ID</TH>
+                  <TH className="px-4 py-2 text-center">Notes</TH>
+                  <TH className="px-4 py-2 text-right">Amount &amp; Date</TH>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {subs.map((s, i) => (
                   <TableRow key={i} className="even:bg-gray-50">
-                    <TableCell>{s.name}</TableCell>
-                    <TableCell className="break-all">{s.upiId}</TableCell>
-                    <TableCell className='text-center'>{s.notes || '-'}</TableCell>
-                    <TableCell className="text-right whitespace-nowrap">
+                    <TableCell className="px-4 py-2 text-center">{s.name}</TableCell>
+                    <TableCell className="px-4 py-2 break-all text-center">{s.upiId}</TableCell>
+                    <TableCell className="px-4 py-2 text-center">{s.notes || '-'}</TableCell>
+                    <TableCell className="px-4 py-2 text-right whitespace-nowrap">
                       ₹{s.amount.toFixed(2)}
                       <br />
                       {format(new Date(s.createdAt), 'PPpp')}
@@ -110,10 +110,11 @@ export default function SubmissionsPage() {
                 ))}
               </TableBody>
             </Table>
+
           </CardContent>
 
           <div className="flex items-center justify-between p-4">
-            <span className="font-semibold">
+            <span className="font-semibold text-lg">
               Total: ₹{totalAmount.toFixed(2)}
             </span>
             <div className="flex gap-2">

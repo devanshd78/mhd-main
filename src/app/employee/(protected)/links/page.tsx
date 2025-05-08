@@ -68,7 +68,8 @@ export default function LinkEntriesPage() {
     notes: '',
     amount: '',
   })
-
+  
+  const [isSubmitting, setIsSubmitting] = useState(false) // State to handle button disable
 
   // Fetch a given page of entries
   const fetchEntries = async (p = 1) => {
@@ -117,6 +118,7 @@ export default function LinkEntriesPage() {
   const handleSubmit = async () => {
     if (!linkId || !employeeId) return
     setError('')
+    if (isSubmitting) return // Prevent submission if already submitting
 
     if (!formData.qrFile && !formData.upiId.trim()) {
       setError('Please upload a QR image or enter a UPI ID.')
@@ -138,6 +140,8 @@ export default function LinkEntriesPage() {
       fd.append('notes', formData.notes)
     }
 
+    setIsSubmitting(true) // Disable the submit button
+
     try {
       await api.post(`/employee/links/${linkId}/entries`, fd, {
         withCredentials: true,
@@ -149,6 +153,8 @@ export default function LinkEntriesPage() {
       fetchEntries(page)
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to submit entry.')
+    } finally {
+      setIsSubmitting(false) // Enable submit button after completion
     }
   }
 
@@ -286,8 +292,12 @@ export default function LinkEntriesPage() {
                   <Input
                     name="notes"
                     value={formData.notes}
-                    onChange={handleChange}
-                    placeholder="Additional comments or remarks"
+                    onChange={e => {
+                      if (e.target.value.length <= 50) {
+                        setFormData(f => ({ ...f, notes: e.target.value }))
+                      }
+                    }}
+                    placeholder="Additional comments or remarks (max 50 characters)"
                   />
                 </div>
 
@@ -295,9 +305,10 @@ export default function LinkEntriesPage() {
                 {error && <p className="text-red-500 text-sm">{error}</p>}
               </div>
 
-
               <DialogFooter className="mt-6 flex justify-end space-x-2">
-                <Button onClick={handleSubmit}>Submit</Button>
+                <Button onClick={handleSubmit} disabled={isSubmitting}>
+                  {isSubmitting ? 'Submitting...' : 'Submit'}
+                </Button>
                 <DialogClose asChild>
                   <Button variant="outline">Cancel</Button>
                 </DialogClose>
@@ -342,7 +353,6 @@ export default function LinkEntriesPage() {
               ))}
             </TableBody>
           </Table>
-
 
           <Pager />
 

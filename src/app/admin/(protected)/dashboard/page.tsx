@@ -133,7 +133,8 @@ const AdminDashboardPage: React.FC = () => {
             .post<{ link: string }>('/admin/links', { title: linkTitle, adminId })
             .then(res => {
                 setLinkSuccess(res.data.link)
-                setUploadOpen(false)  // 👈 close the modal here
+                setUploadOpen(false)
+                router.push('/admin/link-history')
             })
             .catch(() => setError('Failed to create link.'))
             .finally(() => setCreatingLink(false))
