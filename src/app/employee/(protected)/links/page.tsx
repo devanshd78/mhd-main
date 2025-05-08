@@ -228,7 +228,7 @@ export default function LinkEntriesPage() {
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
-                  placeholder="Your Name"
+                  placeholder="User Name"
                 />
 
                 {/* QR Code Upload */}

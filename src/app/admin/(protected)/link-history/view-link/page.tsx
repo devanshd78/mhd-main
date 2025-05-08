@@ -27,6 +27,7 @@ export default function ViewLinkPage() {
   const [title, setTitle] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [buttonLoadingId, setButtonLoadingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!linkId) return
@@ -68,17 +69,36 @@ export default function ViewLinkPage() {
                   <TH className="text-sm text-left px-4 py-2">Employee</TH>
                   <TH className="text-sm text-right px-4 py-2"># Entries</TH>
                   <TH className="text-sm text-right px-4 py-2">Total (₹)</TH>
+                  <TH className="text-sm text-right px-4 py-2">Action</TH>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map(r => (
+                {rows.map((r) => (
                   <TableRow key={r.employeeId}>
                     <TableCell className="px-4 py-2 text-sm font-medium">{r.name}</TableCell>
                     <TableCell className="px-4 py-2 text-sm text-right">{r.entryCount}</TableCell>
                     <TableCell className="px-4 py-2 text-sm text-right">{r.employeeTotal.toFixed(2)}</TableCell>
+                    <TableCell className="px-4 py-2 text-sm text-right">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={buttonLoadingId === r.employeeId}
+                        onClick={() => {
+                          setButtonLoadingId(r.employeeId)
+                          router.push(`/admin/dashboard/view?linkid=${linkId}&empid=${r.employeeId}`)
+                        }}
+                      >
+                        {buttonLoadingId === r.employeeId ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          'View Entries'
+                        )}
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
+
             </Table>
           </div>
 

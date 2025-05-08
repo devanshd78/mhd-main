@@ -233,7 +233,7 @@ export default function LinkHistory() {
                     className="flex items-center space-x-1"
                     onClick={() => router.push(`/admin/link-history/view-link?id=${link._id}`)}
                   >
-                    View Links
+                    View Entries
                   </Button>
                   <Button
                     variant="outline"
