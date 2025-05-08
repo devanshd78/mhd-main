@@ -89,7 +89,7 @@ const AdminDashboardPage: React.FC = () => {
     const [subPage, setSubPage] = useState(1);
     const [subPages, setSubPages] = useState(1);
 
-    const PAGE_SIZE = 2;
+    const PAGE_SIZE = 5;
     /* ----------------------- fetch employees ---------------------------- */
     useEffect(() => {
         setLoading(true)
