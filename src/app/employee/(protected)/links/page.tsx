@@ -31,6 +31,7 @@ interface Submission {
   _id: string
   name: string
   upiId: string
+  notes: string
   amount: number
   createdAt: string
 }
@@ -57,8 +58,17 @@ export default function LinkEntriesPage() {
   const [formData, setFormData] = useState<{
     name: string
     qrFile: File | null
+    upiId: string
+    notes: string
     amount: string
-  }>({ name: '', qrFile: null, amount: '' })
+  }>({
+    name: '',
+    qrFile: null,
+    upiId: '',
+    notes: '',
+    amount: '',
+  })
+
 
   // Fetch a given page of entries
   const fetchEntries = async (p = 1) => {
@@ -108,8 +118,8 @@ export default function LinkEntriesPage() {
     if (!linkId || !employeeId) return
     setError('')
 
-    if (!formData.qrFile) {
-      setError('Please select a QR code image.')
+    if (!formData.qrFile && !formData.upiId.trim()) {
+      setError('Please upload a QR image or enter a UPI ID.')
       return
     }
 
@@ -117,23 +127,25 @@ export default function LinkEntriesPage() {
     fd.append('name', formData.name)
     fd.append('amount', formData.amount)
     fd.append('employeeId', employeeId)
-    fd.append('qrImage', formData.qrFile)
+
+    if (formData.qrFile) {
+      fd.append('qrImage', formData.qrFile)
+    } else {
+      fd.append('upiId', formData.upiId.trim())
+    }
+
+    if (formData.notes) {
+      fd.append('notes', formData.notes)
+    }
 
     try {
-      await api.post(
-        `/employee/links/${linkId}/entries`,
-        fd,
-        {
-          withCredentials: true,
-          headers: { 'Content-Type': 'multipart/form-data' },
-        }
-      )
+      await api.post(`/employee/links/${linkId}/entries`, fd, {
+        withCredentials: true,
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
 
-      // Reset form & close
-      setFormData({ name: '', qrFile: null, amount: '' })
+      setFormData({ name: '', qrFile: null, upiId: '', notes: '', amount: '' })
       setShowForm(false)
-
-      // Refresh current page
       fetchEntries(page)
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to submit entry.')
@@ -205,40 +217,84 @@ export default function LinkEntriesPage() {
               </DialogHeader>
 
               <div className="space-y-4">
+                {/* Name */}
                 <Input
                   name="name"
                   value={formData.name}
                   onChange={handleChange}
                   placeholder="Your Name"
                 />
-                <div className="mb-4">
-                  <label className="block text-gray-700 font-medium mb-1">Upload QR Code</label>
-                  <label className="flex items-center justify-between gap-2 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer text-sm text-gray-600 hover:bg-gray-100 transition">
-                    <span className="truncate">
-                      {formData.qrFile ? formData.qrFile.name : "Choose an image..."}
-                    </span>
-                    <span className="text-blue-600 font-semibold">Browse</span>
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={e => {
-                        const file = e.target.files?.[0] || null;
-                        setFormData(f => ({ ...f, qrFile: file }));
-                      }}
-                      className="hidden"
-                    />
+
+                {/* QR Code Upload */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Upload QR Code (optional)
                   </label>
+                  <div className="flex items-center gap-3">
+                    <label className="flex-1 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer text-sm text-gray-600 hover:bg-gray-100 transition">
+                      <span className="block truncate">
+                        {formData.qrFile ? formData.qrFile.name : 'Choose QR image...'}
+                      </span>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={e => {
+                          const file = e.target.files?.[0] || null
+                          setFormData(f => ({ ...f, qrFile: file }))
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    OR enter UPI ID manually below.
+                  </p>
                 </div>
 
-                <Input
-                  name="amount"
-                  type="number"
-                  value={formData.amount}
-                  onChange={handleChange}
-                  placeholder="Amount"
-                />
-                {error && <p className="text-red-500">{error}</p>}
+                {/* Manual UPI ID */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    UPI ID (if no QR)
+                  </label>
+                  <Input
+                    name="upiId"
+                    value={formData.upiId}
+                    onChange={handleChange}
+                    placeholder="example@upi"
+                  />
+                </div>
+
+                {/* Amount */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Amount
+                  </label>
+                  <Input
+                    name="amount"
+                    type="number"
+                    value={formData.amount}
+                    onChange={handleChange}
+                    placeholder="Enter amount"
+                  />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Notes (optional)
+                  </label>
+                  <Input
+                    name="notes"
+                    value={formData.notes}
+                    onChange={handleChange}
+                    placeholder="Additional comments or remarks"
+                  />
+                </div>
+
+                {/* Error Display */}
+                {error && <p className="text-red-500 text-sm">{error}</p>}
               </div>
+
 
               <DialogFooter className="mt-6 flex justify-end space-x-2">
                 <Button onClick={handleSubmit}>Submit</Button>
@@ -264,7 +320,8 @@ export default function LinkEntriesPage() {
             <TableHeader className="bg-gray-100">
               <TableRow>
                 <TH>Name</TH>
-                <TH>UPI&nbsp;ID</TH>
+                <TH>UPI ID</TH>
+                <TH>Notes</TH>
                 <TH className="text-right">Amount &amp; Date</TH>
               </TableRow>
             </TableHeader>
@@ -273,6 +330,9 @@ export default function LinkEntriesPage() {
                 <TableRow key={s._id}>
                   <TableCell>{s.name}</TableCell>
                   <TableCell>{s.upiId}</TableCell>
+                  <TableCell className="max-w-[200px] truncate text-gray-700">
+                    {s.notes || '-'}
+                  </TableCell>
                   <TableCell className="text-right whitespace-nowrap">
                     ₹{s.amount.toFixed(2)}
                     <br />
@@ -282,6 +342,7 @@ export default function LinkEntriesPage() {
               ))}
             </TableBody>
           </Table>
+
 
           <Pager />
 

@@ -9,7 +9,6 @@ import {
   ClipboardCopyIcon,
   EyeIcon,
   PlusIcon,
-  Sparkles,
   LogOutIcon,
 } from 'lucide-react'
 import Swal from 'sweetalert2'
@@ -26,6 +25,7 @@ export default function Dashboard() {
   const [links, setLinks] = useState<LinkItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [navigatingId, setNavigatingId] = useState<string | null>(null)
 
   /* fetch links */
   useEffect(() => {
@@ -37,6 +37,11 @@ export default function Dashboard() {
       )
       .finally(() => setLoading(false))
   }, [])
+
+  const goToLink = (id: string) => {
+    setNavigatingId(id)
+    router.push(`/employee/links?id=${id}`)
+  }
 
   /* sweet‑alert copy */
   const copy = (txt: string) =>
@@ -126,26 +131,33 @@ export default function Dashboard() {
 
                     <Button
                       size="sm"
-                      onClick={() =>
-                        router.push(`/employee/links?id=${link._id}`)
-                      }
+                      onClick={() => goToLink(link._id)}
+                      disabled={navigatingId === link._id}
                       className="flex items-center gap-1"
                     >
-                      <PlusIcon className="h-4 w-4" />
+                      {navigatingId === link._id ? (
+                        <span className="animate-spin h-4 w-4 border-t-2 border-gray-600 rounded-full" />
+                      ) : (
+                        <PlusIcon className="h-4 w-4" />
+                      )}
                       Add Entry
                     </Button>
                   </>
                 ) : (
                   <Button
                     size="sm"
-                    onClick={() =>
-                      router.push(`/employee/links?id=${link._id}`)
-                    }
+                    onClick={() => goToLink(link._id)}
+                    disabled={navigatingId === link._id}
                     className="flex items-center gap-1"
                   >
-                    <EyeIcon className="h-4 w-4" />
+                    {navigatingId === link._id ? (
+                      <span className="animate-spin h-4 w-4 border-t-2 border-gray-600 rounded-full" />
+                    ) : (
+                      <EyeIcon className="h-4 w-4" />
+                    )}
                     View Entries
                   </Button>
+
                 )}
               </div>
             </Card>

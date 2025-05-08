@@ -17,6 +17,7 @@ export default function EmployeeAuth() {
   const [isSignUp, setIsSignUp] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
+  const [loading, setLoading] = useState(false)
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -24,7 +25,9 @@ export default function EmployeeAuth() {
   }
 
   const handleAction = async () => {
+    if (loading) return
     setError('')
+    setLoading(true)
     try {
       const endpoint = isSignUp ? '/employee/register' : '/employee/login'
       const payload = isSignUp
@@ -33,12 +36,12 @@ export default function EmployeeAuth() {
 
       const { data } = await post<AuthResponse>(endpoint, payload)
 
-      // Persist returned employeeId
       localStorage.setItem('employeeId', data.employeeId)
-
       router.replace('/employee/dashboard')
     } catch (err: any) {
       setError(err.response?.data?.error || 'Something went wrong')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -82,10 +85,10 @@ export default function EmployeeAuth() {
           <Button
             onClick={handleAction}
             className="w-full bg-[#800000] text-white py-2 rounded-md hover:bg-[#B53B56] transition"
+            disabled={loading}
           >
-            {isSignUp ? 'Sign Up' : 'Login'}
+            {loading ? 'Please wait...' : isSignUp ? 'Sign Up' : 'Login'}
           </Button>
-
           <div className="mt-4 text-center">
             <button
               onClick={() => setIsSignUp(!isSignUp)}

@@ -47,6 +47,7 @@ interface Submission {
     name: string
     upiId: string
     amount: number
+    notes: string
     createdAt: string
 }
 
@@ -125,14 +126,19 @@ const AdminDashboardPage: React.FC = () => {
     const handleCreateLink = () => {
         setCreatingLink(true)
         setLinkSuccess(null)
+        setError('')
         const adminId = localStorage.getItem('adminId') || ''
 
         api
             .post<{ link: string }>('/admin/links', { title: linkTitle, adminId })
-            .then(res => setLinkSuccess(res.data.link))
+            .then(res => {
+                setLinkSuccess(res.data.link)
+                setUploadOpen(false)  // 👈 close the modal here
+            })
             .catch(() => setError('Failed to create link.'))
             .finally(() => setCreatingLink(false))
     }
+
 
     const fetchLinks = (emp: Employee, page = 1) => {
         setLinksLoading(true);
@@ -143,7 +149,7 @@ const AdminDashboardPage: React.FC = () => {
         })
             .then(res => {
                 console.log(res.data.links);
-                
+
                 setLinks(res.data.links);
                 setLinkPage(res.data.page);
                 setLinkPages(res.data.pages);
@@ -179,9 +185,9 @@ const AdminDashboardPage: React.FC = () => {
 
     // -------------------- view submissions ------------------------
     const handleViewSubmissions = (link: LinkEntry) => {
-        setSelectedLink(link);
-        fetchSubs(link, 1);       // first page
-    };
+        if (!link._id || !selectedEmp?.employeeId) return
+        router.push(`/admin/dashboard/view?linkid=${link._id}&empid=${selectedEmp.employeeId}`)
+      }      
 
     /* logout handler */
     const handleLogout = async () => {
@@ -308,20 +314,6 @@ const AdminDashboardPage: React.FC = () => {
                             onChange={e => setLinkTitle(e.target.value)}
                             className="w-full mt-4"
                         />
-
-                        {linkSuccess && (
-                            <p className="mt-2 text-sm text-green-600 break-all">
-                                Link:&nbsp;
-                                <a
-                                    href={linkSuccess}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="underline"
-                                >
-                                    {linkSuccess}
-                                </a>
-                            </p>
-                        )}
 
                         <DialogFooter>
                             <DialogClose asChild>
@@ -452,7 +444,7 @@ const AdminDashboardPage: React.FC = () => {
                                                                 variant="outline"
                                                                 onClick={() => handleViewSubmissions(link)}
                                                             >
-                                                                View Links
+                                                                View Entries
                                                             </Button>
                                                         </TableCell>
                                                     </TableRow>
@@ -474,90 +466,6 @@ const AdminDashboardPage: React.FC = () => {
                             </CardContent>
 
                             <DialogFooter>
-                                <DialogClose asChild>
-                                    <Button size="sm">Close</Button>
-                                </DialogClose>
-                            </DialogFooter>
-                        </DialogContent>
-                    </DialogPortal>
-                </Dialog>
-            )}
-
-            {/* ----------------------- Submissions Modal -------------------- */}
-            {selectedLink && (
-                <Dialog
-                    open={!!selectedLink}
-                    onOpenChange={() => {
-                        setSelectedLink(null)
-                        setSubs([])
-                        setTotalAmount(0)
-                    }}
-                >
-                    <DialogPortal>
-                        {/* ▲ flex‑centred overlay (transparent bg) */}
-                        <DialogOverlay className="fixed inset-0 flex items-center justify-center bg-transparent" />
-                        <DialogContent className={modalContainer}>
-                            <DialogHeader>
-                                <DialogTitle>
-                                    Submissions for “{selectedLink.title}”
-                                </DialogTitle>
-                            </DialogHeader>
-
-                            <CardContent className="p-0">
-                                {subsLoading ? (
-                                    <div className="flex justify-center py-8">
-                                        <Loader2 className="animate-spin text-gray-500" />
-                                    </div>
-                                ) : subs.length === 0 ? (
-                                    <p className="text-center p-4 text-gray-500">
-                                        No submissions found.
-                                    </p>
-                                ) : (
-                                    <div className="overflow-y-auto max-h-[60vh] px-4">
-                                        <Table className="w-full table-auto">
-                                            <colgroup>
-                                                <col className="w-2/5" />
-                                                <col className="w-2/5" />
-                                                <col className="w-1/5" />
-                                            </colgroup>
-                                            <TableHeader className="bg-gray-100">
-                                                <TableRow>
-                                                    <TH>Name</TH>
-                                                    <TH>UPI&nbsp;ID</TH>
-                                                    <TH className="text-right">Amount&nbsp;& Date</TH>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {subs.map((s, idx) => (
-                                                    <TableRow key={idx} className="even:bg-gray-50">
-                                                        <TableCell>{s.name}</TableCell>
-                                                        <TableCell className="break-all">{s.upiId}</TableCell>
-                                                        <TableCell className="text-right whitespace-nowrap">
-                                                            ₹{s.amount.toFixed(2)}
-                                                            <br />
-                                                            {format(new Date(s.createdAt), 'PPpp')}
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                        {subs.length > 0 && (
-                                            <Pager
-                                                page={subPage}
-                                                pages={subPages}
-                                                onChange={p => fetchSubs(selectedLink!, p)}
-                                            />
-                                        )}
-
-                                    </div>
-                                )}
-                            </CardContent>
-
-                            {/* Footer with Total and Close */}
-                            <DialogFooter className="flex items-center justify-between">
-                                <span className="text-lg font-semibold">
-                                    Total:&nbsp;₹{totalAmount.toFixed(2)}
-                                </span>
                                 <DialogClose asChild>
                                     <Button size="sm">Close</Button>
                                 </DialogClose>
