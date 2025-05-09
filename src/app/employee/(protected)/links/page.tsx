@@ -53,6 +53,8 @@ export default function LinkEntriesPage() {
 
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
+  const [editMode, setEditMode] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState<{
@@ -68,7 +70,7 @@ export default function LinkEntriesPage() {
     notes: '',
     amount: '',
   })
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false) // State to handle button disable
 
   // Fetch a given page of entries
@@ -114,49 +116,78 @@ export default function LinkEntriesPage() {
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
-  // Handle form submit with QR image
+  const handleEdit = (entry: Submission) => {
+    setFormData({
+      name: entry.name,
+      qrFile: null,
+      upiId: entry.upiId,
+      notes: entry.notes,
+      amount: entry.amount.toString(),
+    })
+    setEditingId(entry._id)
+    setEditMode(true)
+    setShowForm(true)
+  }
+
+  // Updated handleSubmit for both add & edit
   const handleSubmit = async () => {
-    if (!linkId || !employeeId) return
-    setError('')
-    if (isSubmitting) return // Prevent submission if already submitting
+    if (!linkId || !employeeId) return;
+    setError('');
+    if (isSubmitting) return;
 
-    if (!formData.qrFile && !formData.upiId.trim()) {
-      setError('Please upload a QR image or enter a UPI ID.')
-      return
+    if (!editMode && !formData.qrFile && !formData.upiId.trim()) {
+      setError('Please upload a QR image or enter a UPI ID.');
+      return;
     }
 
-    const fd = new FormData()
-    fd.append('name', formData.name)
-    fd.append('amount', formData.amount)
-    fd.append('employeeId', employeeId)
-
-    if (formData.qrFile) {
-      fd.append('qrImage', formData.qrFile)
-    } else {
-      fd.append('upiId', formData.upiId.trim())
-    }
-
-    if (formData.notes) {
-      fd.append('notes', formData.notes)
-    }
-
-    setIsSubmitting(true) // Disable the submit button
+    setIsSubmitting(true);
 
     try {
-      await api.post(`/employee/links/${linkId}/entries`, fd, {
-        withCredentials: true,
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+      if (editMode && editingId) {
+        // For edit mode, send a JSON payload using PUT
+        await api.post(`/employee/entries/${linkId}/${employeeId}`, {
+          name: formData.name.trim(),
+          upiId: formData.upiId.trim(),
+          amount: parseFloat(formData.amount),
+          notes: formData.notes.trim(),
+        }, {
+          withCredentials: true,
+        });
+      } else {
+        // For new entries, use FormData and POST
+        const fd = new FormData();
+        fd.append('name', formData.name);
+        fd.append('amount', formData.amount);
+        fd.append('employeeId', employeeId);
 
-      setFormData({ name: '', qrFile: null, upiId: '', notes: '', amount: '' })
-      setShowForm(false)
-      fetchEntries(page)
+        if (formData.qrFile) {
+          fd.append('qrImage', formData.qrFile);
+        } else {
+          fd.append('upiId', formData.upiId.trim());
+        }
+
+        if (formData.notes) {
+          fd.append('notes', formData.notes);
+        }
+
+        await api.post(`/employee/links/${linkId}/entries`, fd, {
+          withCredentials: true,
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      }
+
+      setFormData({ name: '', qrFile: null, upiId: '', notes: '', amount: '' });
+      setShowForm(false);
+      setEditMode(false);
+      setEditingId(null);
+      fetchEntries(page);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to submit entry.')
+      setError(err.response?.data?.error || 'Failed to submit entry.');
     } finally {
-      setIsSubmitting(false) // Enable submit button after completion
+      setIsSubmitting(false);
     }
-  }
+  };
+
 
   // Simple pager UI
   const Pager = () =>
@@ -207,11 +238,19 @@ export default function LinkEntriesPage() {
 
       {/* Add entry button (latest link only) */}
       {isLatest && (
-        <Dialog open={showForm} onOpenChange={setShowForm}>
+        <Dialog open={showForm} onOpenChange={(val) => {
+          if (!val) {
+            setFormData({ name: '', qrFile: null, upiId: '', notes: '', amount: '' })
+            setEditMode(false)
+            setEditingId(null)
+            setError('')
+          }
+          setShowForm(val)
+        }}>
           <DialogTrigger asChild>
             <Button>
               <PlusIcon className="h-4 w-4" />
-              Add Entry
+              {editMode ? 'Edit Entry' : 'Add Entry'}
             </Button>
           </DialogTrigger>
 
@@ -231,37 +270,39 @@ export default function LinkEntriesPage() {
                   placeholder="User Name"
                 />
 
-                {/* QR Code Upload */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Upload QR Code (optional)
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <label className="flex-1 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer text-sm text-gray-600 hover:bg-gray-100 transition">
-                      <span className="block truncate">
-                        {formData.qrFile ? formData.qrFile.name : 'Choose QR image...'}
-                      </span>
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        onChange={e => {
-                          const file = e.target.files?.[0] || null
-                          setFormData(f => ({ ...f, qrFile: file }))
-                        }}
-                        className="hidden"
-                      />
+                {!editMode && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Upload QR Code (optional)
                     </label>
+                    <div className="flex items-center gap-3">
+                      <label className="flex-1 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer text-sm text-gray-600 hover:bg-gray-100 transition">
+                        <span className="block truncate">
+                          {formData.qrFile ? formData.qrFile.name : 'Choose QR image...'}
+                        </span>
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          onChange={e => {
+                            const file = e.target.files?.[0] || null
+                            setFormData(f => ({ ...f, qrFile: file }))
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      OR enter UPI ID manually below.
+                    </p>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    OR enter UPI ID manually below.
-                  </p>
-                </div>
+                )}
 
                 {/* Manual UPI ID */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    UPI ID (if no QR)
+                    UPI ID {!editMode && <span className="text-gray-500 text-xs">(if no QR)</span>}
                   </label>
+
                   <Input
                     name="upiId"
                     value={formData.upiId}
@@ -307,7 +348,7 @@ export default function LinkEntriesPage() {
 
               <DialogFooter className="mt-6 flex justify-end space-x-2">
                 <Button onClick={handleSubmit} disabled={isSubmitting}>
-                  {isSubmitting ? 'Submitting...' : 'Submit'}
+                  {isSubmitting ? 'Submitting...' : editMode ? 'Update' : 'Submit'}
                 </Button>
                 <DialogClose asChild>
                   <Button variant="outline">Cancel</Button>
@@ -334,6 +375,7 @@ export default function LinkEntriesPage() {
                 <TH>UPI ID</TH>
                 <TH>Notes</TH>
                 <TH className="text-right">Amount &amp; Date</TH>
+                <TH className="text-right">Action</TH>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -348,6 +390,11 @@ export default function LinkEntriesPage() {
                     ₹{s.amount.toFixed(2)}
                     <br />
                     {format(new Date(s.createdAt), 'PPpp')}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button size="sm" variant="outline" onClick={() => handleEdit(s)}>
+                      Edit
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
