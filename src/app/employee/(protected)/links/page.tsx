@@ -145,7 +145,7 @@ export default function LinkEntriesPage() {
     try {
       if (editMode && editingId) {
         // For edit mode, send a JSON payload using PUT
-        await api.post(`/employee/entries/${linkId}/${employeeId}`, {
+        await api.post(`/employee/entries/${linkId}/${employeeId}/${editingId}`, {
           name: formData.name.trim(),
           upiId: formData.upiId.trim(),
           amount: parseFloat(formData.amount),
@@ -187,7 +187,6 @@ export default function LinkEntriesPage() {
       setIsSubmitting(false);
     }
   };
-
 
   // Simple pager UI
   const Pager = () =>
