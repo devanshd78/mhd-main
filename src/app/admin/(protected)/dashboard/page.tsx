@@ -88,6 +88,7 @@ const AdminDashboardPage: React.FC = () => {
     const [showBalanceModal, setShowBalanceModal] = useState(false);
     const [balanceToAdd, setBalanceToAdd] = useState('');
     const [notes, setNotes] = useState<string>('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const PAGE_SIZE = 5;
     /* ----------------------- fetch employees ---------------------------- */
@@ -173,7 +174,9 @@ const AdminDashboardPage: React.FC = () => {
         setBalanceToAdd('');
     };
 
-    const handleSubmitBalance = () => {
+    const handleSubmitBalance = async () => {
+        if (isSubmitting) return;
+
         if (!selectedEmp || !balanceToAdd) return;
 
         const adminId = localStorage.getItem('adminId');
@@ -184,37 +187,42 @@ const AdminDashboardPage: React.FC = () => {
             return;
         }
 
-        api.post('/admin/employees/add-balance', {
-            employeeId: selectedEmp.employeeId,
-            amount,
-            adminId,
-            note: notes,
+        setIsSubmitting(true);
 
-        })
-            .then(() => {
-                Swal.fire('Success', 'Balance added successfully!', 'success');
-                // Update the balance in the local state
-                setEmployees(prev =>
-                    prev.map(emp =>
-                        emp._id === selectedEmp._id
-                            ? { ...emp, balance: (emp.balance || 0) + amount }
-                            : emp
-                    )
-                );
-                setFiltered(prev =>
-                    prev.map(emp =>
-                        emp._id === selectedEmp._id
-                            ? { ...emp, balance: (emp.balance || 0) + amount }
-                            : emp
-                    )
-                );
-                setShowBalanceModal(false);
-            })
-            .catch(() => {
-                Swal.fire('Error', 'Failed to add balance', 'error');
+        try {
+            await api.post('/admin/employees/add-balance', {
+                employeeId: selectedEmp.employeeId,
+                amount,
+                adminId,
+                note: notes,
             });
-    };
 
+            Swal.fire('Success', 'Balance added successfully!', 'success');
+
+            setEmployees(prev =>
+                prev.map(emp =>
+                    emp._id === selectedEmp._id
+                        ? { ...emp, balance: (emp.balance || 0) + amount }
+                        : emp
+                )
+            );
+            setFiltered(prev =>
+                prev.map(emp =>
+                    emp._id === selectedEmp._id
+                        ? { ...emp, balance: (emp.balance || 0) + amount }
+                        : emp
+                )
+            );
+
+            setShowBalanceModal(false);
+            setBalanceToAdd('');
+            setNotes('');
+        } catch (error) {
+            Swal.fire('Error', 'Failed to add balance', 'error');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     // -------------------- view submissions ------------------------
     const handleViewSubmissions = (link: LinkEntry) => {
@@ -401,29 +409,32 @@ const AdminDashboardPage: React.FC = () => {
                                             <TableCell>{emp.name}</TableCell>
                                             <TableCell className="break-all">{emp.email}</TableCell>
                                             <TableCell className="break-all">{emp.balance || 0}</TableCell>
-                                            <TableCell className="text-right space-x-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => handleViewLinks(emp)}
-                                                >
-                                                    View Links
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => handleAddBalance(emp)}
-                                                >
-                                                    Add Balance
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => handleViewHistory(emp)}
-                                                >
-                                                    View History
-                                                </Button>
+                                            <TableCell className="text-right">
+                                                <div className="flex flex-col space-y-2 items-justify-end">
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-green-100 text-green-800 hover:bg-green-200"
+                                                        onClick={() => handleViewLinks(emp)}
+                                                    >
+                                                        View Links
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-blue-100 text-blue-800 hover:bg-blue-200"
+                                                        onClick={() => handleAddBalance(emp)}
+                                                    >
+                                                        Add Balance
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                                                        onClick={() => handleViewHistory(emp)}
+                                                    >
+                                                        View History
+                                                    </Button>
+                                                </div>
                                             </TableCell>
+
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -573,7 +584,10 @@ const AdminDashboardPage: React.FC = () => {
                         <DialogClose asChild>
                             <Button variant="outline">Cancel</Button>
                         </DialogClose>
-                        <Button onClick={handleSubmitBalance}>Submit</Button>
+                        <Button onClick={handleSubmitBalance} disabled={isSubmitting}>
+                            {isSubmitting ? 'Submitting...' : 'Submit'}
+                        </Button>
+
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

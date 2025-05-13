@@ -72,6 +72,15 @@ export default function LinkEntriesPage() {
   })
 
   const [isSubmitting, setIsSubmitting] = useState(false) // State to handle button disable
+  const [balance, setBalance] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!employeeId) return
+  
+    api.get(`/employee/balance?employeeId=${employeeId}`)
+      .then(res => setBalance(res.data.balance))
+      .catch(err => console.error('Failed to fetch balance', err))
+  }, [])
 
   // Fetch a given page of entries
   const fetchEntries = async (p = 1) => {
@@ -258,6 +267,9 @@ export default function LinkEntriesPage() {
             <DialogContent className="fixed top-1/2 left-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 bg-white p-6 rounded-2xl shadow-lg">
               <DialogHeader>
                 <DialogTitle>New Submission</DialogTitle>
+                <p className="text-sm text-gray-500">
+                  Balance Left: <span className="font-semibold text-green-700">₹{balance?.toLocaleString()}</span>
+                </p>
               </DialogHeader>
 
               <div className="space-y-4">

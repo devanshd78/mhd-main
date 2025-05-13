@@ -26,7 +26,17 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [navigatingId, setNavigatingId] = useState<string | null>(null)
+  const [balance, setBalance] = useState<number | null>(null)
 
+  useEffect(() => {
+    const empId = localStorage.getItem('employeeId')
+    if (!empId) return
+  
+    api.get(`/employee/balance?employeeId=${empId}`)
+      .then(res => setBalance(res.data.balance))
+      .catch(err => console.error('Failed to fetch balance', err))
+  }, [])
+  
   /* fetch links */
   useEffect(() => {
     api
@@ -79,15 +89,22 @@ export default function Dashboard() {
       {/* title row */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl sm:text-4xl font-bold">Available Links</h1>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleLogout}
-          className="flex items-center gap-1"
-        >
-          <LogOutIcon className="h-4 w-4" />
-          Logout
-        </Button>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+    {balance !== null && (
+      <span className="text-sm sm:text-base font-medium text-green-700 bg-green-100 px-3 py-1 rounded-lg border border-green-300">
+        Balance Left: ₹{balance.toLocaleString()}
+      </span>
+    )}
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={handleLogout}
+      className="flex items-center gap-1"
+    >
+      <LogOutIcon className="h-4 w-4" />
+      Logout
+    </Button>
+  </div>
       </div>
 
       {/* link cards */}
