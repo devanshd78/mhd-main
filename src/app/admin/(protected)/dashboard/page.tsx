@@ -34,6 +34,7 @@ interface Employee {
     name: string
     email: string
     employeeId: string
+    balance: number
 }
 
 interface LinkEntry {
@@ -73,21 +74,20 @@ const AdminDashboardPage: React.FC = () => {
     const [linkTitle, setLinkTitle] = useState('')
     const [creatingLink, setCreatingLink] = useState(false)
     const [linkSuccess, setLinkSuccess] = useState<string | null>(null)
+    const [showLinksModal, setShowLinksModal] = useState(false);
 
     /* ----------------------- drill‑down modals --------------------------- */
     const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null)
     const [links, setLinks] = useState<LinkEntry[]>([])
     const [linksLoading, setLinksLoading] = useState(false)
-    const [totalAmount, setTotalAmount] = useState<number>(0)
     const [selectedLink, setSelectedLink] = useState<LinkEntry | null>(null)
     const [subs, setSubs] = useState<Submission[]>([])
-    const [subsLoading, setSubsLoading] = useState(false)
 
     const [linkPage, setLinkPage] = useState(1);
     const [linkPages, setLinkPages] = useState(1);
-
-    const [subPage, setSubPage] = useState(1);
-    const [subPages, setSubPages] = useState(1);
+    const [showBalanceModal, setShowBalanceModal] = useState(false);
+    const [balanceToAdd, setBalanceToAdd] = useState('');
+    const [notes, setNotes] = useState<string>('');
 
     const PAGE_SIZE = 5;
     /* ----------------------- fetch employees ---------------------------- */
@@ -159,36 +159,72 @@ const AdminDashboardPage: React.FC = () => {
             .finally(() => setLinksLoading(false));
     };
 
-    const fetchSubs = (link: LinkEntry, page = 1) => {
-        setSubsLoading(true);
-        api.post('/admin/employees/links/entries', {
-            linkId: link._id,
-            employeeId: selectedEmp?.employeeId,
-            page,
-            limit: PAGE_SIZE,
-        })
-            .then(res => {
-                setSubs(res.data.entries);
-                setTotalAmount(res.data.totalAmount);
-                setSubPage(res.data.page);
-                setSubPages(res.data.pages);
-            })
-            .catch(() => setError('Failed to load submissions.'))
-            .finally(() => setSubsLoading(false));
-    };
-
 
     // ----------------------- view links --------------------------
     const handleViewLinks = (emp: Employee) => {
         setSelectedEmp(emp);
+        setShowLinksModal(true);
         fetchLinks(emp, 1);       // first page
     };
+
+    const handleAddBalance = (emp: Employee) => {
+        setSelectedEmp(emp);
+        setShowBalanceModal(true);
+        setBalanceToAdd('');
+    };
+
+    const handleSubmitBalance = () => {
+        if (!selectedEmp || !balanceToAdd) return;
+
+        const adminId = localStorage.getItem('adminId');
+        const amount = parseFloat(balanceToAdd);
+
+        if (!adminId || isNaN(amount) || amount <= 0) {
+            Swal.fire('Invalid input', 'Please enter a valid amount.', 'error');
+            return;
+        }
+
+        api.post('/admin/employees/add-balance', {
+            employeeId: selectedEmp.employeeId,
+            amount,
+            adminId,
+            note: notes,
+
+        })
+            .then(() => {
+                Swal.fire('Success', 'Balance added successfully!', 'success');
+                // Update the balance in the local state
+                setEmployees(prev =>
+                    prev.map(emp =>
+                        emp._id === selectedEmp._id
+                            ? { ...emp, balance: (emp.balance || 0) + amount }
+                            : emp
+                    )
+                );
+                setFiltered(prev =>
+                    prev.map(emp =>
+                        emp._id === selectedEmp._id
+                            ? { ...emp, balance: (emp.balance || 0) + amount }
+                            : emp
+                    )
+                );
+                setShowBalanceModal(false);
+            })
+            .catch(() => {
+                Swal.fire('Error', 'Failed to add balance', 'error');
+            });
+    };
+
 
     // -------------------- view submissions ------------------------
     const handleViewSubmissions = (link: LinkEntry) => {
         if (!link._id || !selectedEmp?.employeeId) return
         router.push(`/admin/dashboard/view?linkid=${link._id}&empid=${selectedEmp.employeeId}`)
-      }      
+    }
+
+    const handleViewHistory = (emp: Employee) => {
+        router.push(`/admin/dashboard/history?id=${emp.employeeId}&name=${emp.name}`);
+    };
 
     /* logout handler */
     const handleLogout = async () => {
@@ -355,6 +391,7 @@ const AdminDashboardPage: React.FC = () => {
                                     <TableRow>
                                         <TH>Name</TH>
                                         <TH>Email</TH>
+                                        <TH>Balance</TH>
                                         <TH className="text-right">Actions</TH>
                                     </TableRow>
                                 </TableHeader>
@@ -363,13 +400,28 @@ const AdminDashboardPage: React.FC = () => {
                                         <TableRow key={emp._id} className="even:bg-gray-50">
                                             <TableCell>{emp.name}</TableCell>
                                             <TableCell className="break-all">{emp.email}</TableCell>
-                                            <TableCell className="text-right">
+                                            <TableCell className="break-all">{emp.balance || 0}</TableCell>
+                                            <TableCell className="text-right space-x-2">
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
                                                     onClick={() => handleViewLinks(emp)}
                                                 >
                                                     View Links
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => handleAddBalance(emp)}
+                                                >
+                                                    Add Balance
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => handleViewHistory(emp)}
+                                                >
+                                                    View History
                                                 </Button>
                                             </TableCell>
                                         </TableRow>
@@ -384,7 +436,7 @@ const AdminDashboardPage: React.FC = () => {
             {/* ----------------------- Links Modal -------------------------- */}
             {selectedEmp && (
                 <Dialog
-                    open={!!selectedEmp}
+                    open={showLinksModal}
                     onOpenChange={() => {
                         setSelectedEmp(null)
                         setLinks([])
@@ -475,6 +527,56 @@ const AdminDashboardPage: React.FC = () => {
                     </DialogPortal>
                 </Dialog>
             )}
+
+            <Dialog open={showBalanceModal} onOpenChange={setShowBalanceModal}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Add Balance</DialogTitle>
+                        <DialogDescription>
+                            Add balance for {selectedEmp?.name}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-2">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Current Balance</label>
+                            <input
+                                type="text"
+                                disabled
+                                value={selectedEmp?.balance ?? 0}
+                                className="w-full rounded border px-3 py-2 bg-gray-100 text-gray-600"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Add Balance</label>
+                            <input
+                                type="number"
+                                value={balanceToAdd}
+                                onChange={(e) => setBalanceToAdd(e.target.value)}
+                                className="w-full rounded border px-3 py-2"
+                                placeholder="Enter amount"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Notes</label>
+                            <textarea
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
+                                className="w-full rounded border px-3 py-2"
+                                placeholder="Enter any notes"
+                                rows={4}
+                            />
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <DialogClose asChild>
+                            <Button variant="outline">Cancel</Button>
+                        </DialogClose>
+                        <Button onClick={handleSubmitBalance}>Submit</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
