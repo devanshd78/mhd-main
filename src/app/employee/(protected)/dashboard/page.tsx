@@ -18,6 +18,8 @@ interface LinkItem {
   _id: string
   title: string
   isLatest: boolean
+  target: number
+  amount: number
 }
 
 export default function Dashboard() {
@@ -31,13 +33,13 @@ export default function Dashboard() {
   useEffect(() => {
     const empId = localStorage.getItem('employeeId')
     if (!empId) return
-  
-    api.get(`/employee/balance?employeeId=${empId}`)
-      .then(res => setBalance(res.data.balance))
-      .catch(err => console.error('Failed to fetch balance', err))
+
+    api
+      .get(`/employee/balance?employeeId=${empId}`)
+      .then((res) => setBalance(res.data.balance))
+      .catch((err) => console.error('Failed to fetch balance', err))
   }, [])
-  
-  /* fetch links */
+
   useEffect(() => {
     api
       .get<LinkItem[]>('/employee/links', { withCredentials: true })
@@ -53,7 +55,6 @@ export default function Dashboard() {
     router.push(`/employee/links?id=${id}`)
   }
 
-  /* sweet‑alert copy */
   const copy = (txt: string) =>
     navigator.clipboard.writeText(txt).then(() =>
       Swal.fire({
@@ -67,7 +68,6 @@ export default function Dashboard() {
       })
     )
 
-  /* logout handler */
   const handleLogout = async () => {
     localStorage.clear()
     Swal.fire({
@@ -90,47 +90,52 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl sm:text-4xl font-bold">Available Links</h1>
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-    {balance !== null && (
-      <span className="text-sm sm:text-base font-medium text-green-700 bg-green-100 px-3 py-1 rounded-lg border border-green-300">
-        Balance Left: ₹{balance.toLocaleString()}
-      </span>
-    )}
-    <Button
-      size="sm"
-      variant="outline"
-      onClick={handleLogout}
-      className="flex items-center gap-1"
-    >
-      <LogOutIcon className="h-4 w-4" />
-      Logout
-    </Button>
-  </div>
+          {balance !== null && (
+            <span className="text-sm sm:text-base font-medium text-green-700 bg-green-100 px-3 py-1 rounded-lg border border-green-300">
+              Balance Left: ₹{balance.toLocaleString()}
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleLogout}
+            className="flex items-center gap-1"
+          >
+            <LogOutIcon className="h-4 w-4" />
+            Logout
+          </Button>
+        </div>
       </div>
 
       {/* link cards */}
-      <div
-        className="flex flex-col sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto"
-      >
+      <div className="flex flex-col sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {links.map((link) => {
           const latest = link.isLatest
 
           return (
             <Card
               key={link._id}
-              className={`relative p-6 space-y-4 transition transform
-    ${latest
+              className={`relative p-6 space-y-4 transition transform ${
+                latest
                   ? 'bg-green-100 border-green-400 border-2 hover:shadow-xl'
-                  : 'bg-gray-100 border-gray-200 border-1 hover:shadow-xl'
-                }
-  `}
+                  : 'bg-white border border-gray-200 hover:shadow-md'
+              }`}
             >
               {latest && (
-                <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-green-600/90 px-3 py-[2px] text-xs font-medium text-white"> Latest
+                <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-green-600/90 px-3 py-[2px] text-xs font-medium text-white">
+                  Latest
                 </span>
               )}
 
-
-              <p className="text-lg font-semibold break-words">{link.title}</p>
+              <div>
+                <p className="text-lg font-semibold break-words">{link.title}</p>
+                <p className="text-sm text-gray-700 mt-2">
+                  🎯 <span className="font-medium">Target:</span> {link.target}
+                </p>
+                <p className="text-sm text-gray-700">
+                  💰 <span className="font-medium">Amount/Person:</span> ₹{link.amount}
+                </p>
+              </div>
 
               <div className="flex flex-wrap gap-2">
                 {latest ? (
@@ -144,8 +149,6 @@ export default function Dashboard() {
                       <ClipboardCopyIcon className="h-4 w-4" />
                       Copy Link
                     </Button>
-
-
                     <Button
                       size="sm"
                       onClick={() => goToLink(link._id)}
@@ -174,7 +177,6 @@ export default function Dashboard() {
                     )}
                     View Entries
                   </Button>
-
                 )}
               </div>
             </Card>

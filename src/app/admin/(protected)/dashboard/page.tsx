@@ -42,6 +42,8 @@ interface LinkEntry {
     title: string
     createdBy: string
     createdAt: string
+    target: number
+    amount: number
 }
 
 interface Submission {
@@ -71,8 +73,11 @@ const AdminDashboardPage: React.FC = () => {
 
     /* ----------------------- upload link modal --------------------------- */
     const [uploadOpen, setUploadOpen] = useState(false)
-    const [linkTitle, setLinkTitle] = useState('')
-    const [creatingLink, setCreatingLink] = useState(false)
+    const [linkTitle, setLinkTitle] = useState('');
+    const [linkTarget, setLinkTarget] = useState('');
+    const [linkAmount, setLinkAmount] = useState('');
+    const [creatingLink, setCreatingLink] = useState(false);
+
     const [linkSuccess, setLinkSuccess] = useState<string | null>(null)
     const [showLinksModal, setShowLinksModal] = useState(false);
 
@@ -131,7 +136,10 @@ const AdminDashboardPage: React.FC = () => {
         const adminId = localStorage.getItem('adminId') || ''
 
         api
-            .post<{ link: string }>('/admin/links', { title: linkTitle, adminId })
+            .post<{ link: string }>('/admin/links', {
+                title: linkTitle, adminId, target: Number(linkTarget),
+                amount: Number(linkAmount)
+            })
             .then(res => {
                 setLinkSuccess(res.data.link)
                 setUploadOpen(false)
@@ -343,20 +351,38 @@ const AdminDashboardPage: React.FC = () => {
             {/* ----------------------- Upload Link Modal -------------------- */}
             <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
                 <DialogPortal>
-                    {/* ▲ flex‑centred overlay */}
                     <DialogOverlay className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm" />
                     <DialogContent className={modalContainer}>
                         <DialogHeader>
                             <DialogTitle>Create new shareable link</DialogTitle>
                             <DialogDescription>
-                                Give the link a short, descriptive title.
+                                Give the link a short, descriptive title and fill in target & amount.
                             </DialogDescription>
                         </DialogHeader>
 
+                        {/* Title Input */}
                         <Input
                             placeholder="Link title"
                             value={linkTitle}
                             onChange={e => setLinkTitle(e.target.value)}
+                            className="w-full mt-4"
+                        />
+
+                        {/* Target Input */}
+                        <Input
+                            type="number"
+                            placeholder="Target (e.g. 100)"
+                            value={linkTarget}
+                            onChange={e => setLinkTarget(e.target.value)}
+                            className="w-full mt-4"
+                        />
+
+                        {/* Amount Input */}
+                        <Input
+                            type="number"
+                            placeholder="Amount per person (e.g. 10)"
+                            value={linkAmount}
+                            onChange={e => setLinkAmount(e.target.value)}
                             className="w-full mt-4"
                         />
 
@@ -366,7 +392,7 @@ const AdminDashboardPage: React.FC = () => {
                             </DialogClose>
                             <Button
                                 onClick={handleCreateLink}
-                                disabled={creatingLink || !linkTitle}
+                                disabled={creatingLink || !linkTitle || !linkTarget || !linkAmount}
                             >
                                 {creatingLink && <Loader2 className="animate-spin mr-2 h-4 w-4" />}
                                 Create

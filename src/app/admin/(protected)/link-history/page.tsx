@@ -20,6 +20,8 @@ import Swal from 'sweetalert2'  // Import SweetAlert2
 interface LinkItem {
   _id: string
   title: string
+  target: number
+  amount: number
 }
 
 export default function LinkHistory() {
@@ -41,6 +43,9 @@ export default function LinkHistory() {
   // modal state
   const [isOpen, setIsOpen] = useState(false)
   const [linkTitle, setLinkTitle] = useState('')
+  const [target, setTarget] = useState<number>(0);
+  const [amount, setAmount] = useState<number>(0);
+
   const [creatingLink, setCreatingLink] = useState(false)
   const [linkSuccess, setLinkSuccess] = useState<string | null>(null)
 
@@ -172,6 +177,21 @@ export default function LinkHistory() {
                   onChange={(e) => setLinkTitle(e.target.value)}
                   disabled={creatingLink}
                 />
+                <Input
+                  type="number"
+                  placeholder="Target"
+                  value={target}
+                  onChange={(e) => setTarget(Number(e.target.value))}
+                  disabled={creatingLink}
+                />
+                <Input
+                  type="number"
+                  placeholder="Amount per person"
+                  value={amount}
+                  onChange={(e) => setAmount(Number(e.target.value))}
+                  disabled={creatingLink}
+                />
+
                 {linkSuccess && (
                   <p className="text-sm text-green-600">Link created!</p>
                 )}
@@ -185,7 +205,10 @@ export default function LinkHistory() {
                 >
                   Cancel
                 </Button>
-                <Button onClick={handleCreateLink} disabled={!linkTitle || creatingLink}>
+                <Button
+                  onClick={handleCreateLink}
+                  disabled={!linkTitle || !target || !amount || creatingLink}
+                >
                   {creatingLink ? 'Creating…' : 'Create Link'}
                 </Button>
               </DialogFooter>
