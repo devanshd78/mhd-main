@@ -22,6 +22,7 @@ interface LinkItem {
   title: string
   target: number
   amount: number
+  expireIn: number
 }
 
 export default function LinkHistory() {
@@ -43,8 +44,9 @@ export default function LinkHistory() {
   // modal state
   const [isOpen, setIsOpen] = useState(false)
   const [linkTitle, setLinkTitle] = useState('')
-  const [target, setTarget] = useState<number>(0);
-  const [amount, setAmount] = useState<number>(0);
+  const [target, setTarget] = useState('');
+  const [amount, setAmount] = useState('');
+  const [expireIn, setExpireIn] = useState('')
 
   const [creatingLink, setCreatingLink] = useState(false)
   const [linkSuccess, setLinkSuccess] = useState<string | null>(null)
@@ -72,7 +74,10 @@ export default function LinkHistory() {
     const adminId = localStorage.getItem('adminId') || ''
 
     api
-      .post<{ link: string }>('/admin/links', { title: linkTitle, adminId })
+      .post<{ link: string }>('/admin/links', {
+        title: linkTitle, adminId,
+        target: Number(target), amount: Number(amount), expireIn: Number(expireIn)
+      })
       .then((res) => {
         setLinkSuccess(res.data.link)
         setLinkTitle('')
@@ -179,17 +184,27 @@ export default function LinkHistory() {
                 />
                 <Input
                   type="number"
-                  placeholder="Target"
+                  placeholder="Target (e.g. 100)"
                   value={target}
-                  onChange={(e) => setTarget(Number(e.target.value))}
-                  disabled={creatingLink}
+                  onChange={e => setTarget(e.target.value)}
+                  className="w-full mt-4"
                 />
+
+                {/* Amount Input */}
                 <Input
                   type="number"
-                  placeholder="Amount per person"
+                  placeholder="Amount per person (e.g. 10)"
                   value={amount}
-                  onChange={(e) => setAmount(Number(e.target.value))}
-                  disabled={creatingLink}
+                  onChange={e => setAmount(e.target.value)}
+                  className="w-full mt-4"
+                />
+
+                <Input
+                  type="number"
+                  placeholder="Link Expiration (in hours)"
+                  value={expireIn}
+                  onChange={e => setExpireIn(e.target.value)}
+                  className="w-full mt-4"
                 />
 
                 {linkSuccess && (
@@ -207,7 +222,7 @@ export default function LinkHistory() {
                 </Button>
                 <Button
                   onClick={handleCreateLink}
-                  disabled={!linkTitle || !target || !amount || creatingLink}
+                  disabled={!linkTitle || !target || !amount || creatingLink || !expireIn}
                 >
                   {creatingLink ? 'Creating…' : 'Create Link'}
                 </Button>
@@ -237,6 +252,10 @@ export default function LinkHistory() {
                 Created At
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Expiring At
+              </th>
+
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
               </th>
             </tr>
@@ -250,6 +269,14 @@ export default function LinkHistory() {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                   {getCreatedAt(link._id)}
                 </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                  {link.expireIn
+                    ? new Date(
+                      new Date(getCreatedAt(link._id)).getTime() + link.expireIn * 3600 * 1000
+                    ).toLocaleString()
+                    : 'Expired'}
+                </td>
+
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 flex gap-2">
                   <Button
                     variant="outline"

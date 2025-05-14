@@ -25,7 +25,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Loader2, Search, PlusIcon, Clock, LogOutIcon } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, set } from 'date-fns'
 import api from '@/lib/axios'
 import Swal from 'sweetalert2'
 
@@ -44,6 +44,7 @@ interface LinkEntry {
     createdAt: string
     target: number
     amount: number
+    expireIn: number
 }
 
 interface Submission {
@@ -76,6 +77,7 @@ const AdminDashboardPage: React.FC = () => {
     const [linkTitle, setLinkTitle] = useState('');
     const [linkTarget, setLinkTarget] = useState('');
     const [linkAmount, setLinkAmount] = useState('');
+    const [expireIn, setExpireIn] = useState('');
     const [creatingLink, setCreatingLink] = useState(false);
 
     const [linkSuccess, setLinkSuccess] = useState<string | null>(null)
@@ -91,6 +93,7 @@ const AdminDashboardPage: React.FC = () => {
     const [linkPage, setLinkPage] = useState(1);
     const [linkPages, setLinkPages] = useState(1);
     const [showBalanceModal, setShowBalanceModal] = useState(false);
+    const [showUpdateBalanceModal, setShowUpdateBalanceModal] = useState(false);
     const [balanceToAdd, setBalanceToAdd] = useState('');
     const [notes, setNotes] = useState<string>('');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -138,7 +141,7 @@ const AdminDashboardPage: React.FC = () => {
         api
             .post<{ link: string }>('/admin/links', {
                 title: linkTitle, adminId, target: Number(linkTarget),
-                amount: Number(linkAmount)
+                amount: Number(linkAmount), expireIn: Number(expireIn)
             })
             .then(res => {
                 setLinkSuccess(res.data.link)
@@ -191,7 +194,13 @@ const AdminDashboardPage: React.FC = () => {
         const amount = parseFloat(balanceToAdd);
 
         if (!adminId || isNaN(amount) || amount <= 0) {
-            Swal.fire('Invalid input', 'Please enter a valid amount.', 'error');
+            Swal.fire({
+                icon: 'error',
+                title: 'Invalid input',
+                text: 'Please enter a valid amount.',
+                timer: 1500, // The alert will automatically close after 1500 ms (1.5 seconds)
+                showConfirmButton: false, // Hides the "OK" button
+            });
             return;
         }
 
@@ -205,7 +214,13 @@ const AdminDashboardPage: React.FC = () => {
                 note: notes,
             });
 
-            Swal.fire('Success', 'Balance added successfully!', 'success');
+            Swal.fire({
+                icon: 'success',
+                title: 'Success',
+                text: 'Balance Added successfully!',
+                timer: 1500, // The alert will automatically close after 1500 ms (1.5 seconds)
+                showConfirmButton: false, // Hides the "OK" button
+            });
 
             setEmployees(prev =>
                 prev.map(emp =>
@@ -226,7 +241,90 @@ const AdminDashboardPage: React.FC = () => {
             setBalanceToAdd('');
             setNotes('');
         } catch (error) {
-            Swal.fire('Error', 'Failed to add balance', 'error');
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Failed to update balance',
+                timer: 1500, // Closes the alert after 1.5 seconds
+                showConfirmButton: false, // Hides the "OK" button
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleUpdateBalance = (emp: Employee) => {
+        setSelectedEmp(emp);
+        setShowUpdateBalanceModal(true);
+        setBalanceToAdd(emp.balance?.toString() ?? '');
+    };
+
+    const handleSubmitUpdateBalance = async () => {
+        if (isSubmitting) return;
+
+        if (!selectedEmp || !balanceToAdd) return;
+
+        const adminId = localStorage.getItem('adminId');
+        const amount = parseFloat(balanceToAdd);
+
+        if (!adminId || isNaN(amount) || amount < 0) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Invalid input',
+                text: 'Please enter a valid amount.',
+                timer: 1500, // The alert will automatically close after 1500 ms (1.5 seconds)
+                showConfirmButton: false, // Hides the "OK" button
+            });
+
+            return;
+        }
+
+        setIsSubmitting(true);
+
+        try {
+            await api.post('/admin/employees/update-balance', {
+                employeeId: selectedEmp.employeeId,
+                newBalance: amount,
+                adminId,
+                note: notes,
+            });
+
+            Swal.fire({
+                icon: 'success',
+                title: 'Success',
+                text: 'Balance updated successfully!',
+                timer: 1500, // The alert will automatically close after 1500 ms (1.5 seconds)
+                showConfirmButton: false, // Hides the "OK" button
+            });
+
+
+            setEmployees(prev =>
+                prev.map(emp =>
+                    emp._id === selectedEmp._id
+                        ? { ...emp, balance: amount } // Here we're updating the balance
+                        : emp
+                )
+            );
+            setFiltered(prev =>
+                prev.map(emp =>
+                    emp._id === selectedEmp._id
+                        ? { ...emp, balance: amount }
+                        : emp
+                )
+            );
+
+            setShowUpdateBalanceModal(false);
+            setBalanceToAdd('');
+            setNotes('');
+        } catch (error) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Failed to update balance',
+                timer: 1500, // Closes the alert after 1.5 seconds
+                showConfirmButton: false, // Hides the "OK" button
+            });
+
         } finally {
             setIsSubmitting(false);
         }
@@ -386,13 +484,21 @@ const AdminDashboardPage: React.FC = () => {
                             className="w-full mt-4"
                         />
 
+                        <Input
+                            type="number"
+                            placeholder="Link Expiration (in hours)"
+                            value={expireIn}
+                            onChange={e => setExpireIn(e.target.value)}
+                            className="w-full mt-4"
+                        />
+
                         <DialogFooter>
                             <DialogClose asChild>
                                 <Button variant="ghost">Cancel</Button>
                             </DialogClose>
                             <Button
                                 onClick={handleCreateLink}
-                                disabled={creatingLink || !linkTitle || !linkTarget || !linkAmount}
+                                disabled={creatingLink || !linkTitle || !linkTarget || !linkAmount || !expireIn}
                             >
                                 {creatingLink && <Loader2 className="animate-spin mr-2 h-4 w-4" />}
                                 Create
@@ -454,6 +560,13 @@ const AdminDashboardPage: React.FC = () => {
                                                     <Button
                                                         size="sm"
                                                         className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                                                        onClick={() => handleUpdateBalance(emp)}
+                                                    >
+                                                        Update Balance
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-purple-100 text-purple-800 hover:bg-purple-200"
                                                         onClick={() => handleViewHistory(emp)}
                                                     >
                                                         View History
@@ -617,6 +730,59 @@ const AdminDashboardPage: React.FC = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <Dialog open={showUpdateBalanceModal} onOpenChange={setShowUpdateBalanceModal}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Update Balance</DialogTitle>
+                        <DialogDescription>
+                            Update balance for {selectedEmp?.name}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-2">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Current Balance</label>
+                            <input
+                                type="text"
+                                disabled
+                                value={selectedEmp?.balance ?? 0}
+                                className="w-full rounded border px-3 py-2 bg-gray-100 text-gray-600"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">New Balance</label>
+                            <input
+                                type="number"
+                                value={balanceToAdd}
+                                onChange={(e) => setBalanceToAdd(e.target.value)}
+                                className="w-full rounded border px-3 py-2"
+                                placeholder="Enter new balance"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Notes</label>
+                            <textarea
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
+                                className="w-full rounded border px-3 py-2"
+                                placeholder="Enter any notes"
+                                rows={4}
+                            />
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <DialogClose asChild>
+                            <Button variant="outline">Cancel</Button>
+                        </DialogClose>
+                        <Button onClick={handleSubmitUpdateBalance} disabled={isSubmitting}>
+                            {isSubmitting ? 'Submitting...' : 'Submit'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
         </div>
     )
 }

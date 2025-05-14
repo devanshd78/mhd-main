@@ -20,6 +20,8 @@ interface LinkItem {
   isLatest: boolean
   target: number
   amount: number
+  createdAt: string
+  expireIn: number
 }
 
 export default function Dashboard() {
@@ -29,6 +31,15 @@ export default function Dashboard() {
   const [error, setError] = useState('')
   const [navigatingId, setNavigatingId] = useState<string | null>(null)
   const [balance, setBalance] = useState<number | null>(null)
+
+  // force re-render for countdown
+  const [, forceUpdate] = useState(0)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      forceUpdate((n) => n + 1)
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     const empId = localStorage.getItem('employeeId')
@@ -81,6 +92,24 @@ export default function Dashboard() {
     router.push('/employee/login')
   }
 
+  const getTimeLeft = (createdAt: string, expireIn: number) => {
+    const expiryDate = new Date(new Date(createdAt).getTime() + expireIn * 60 * 60 * 1000)
+    const now = new Date()
+    const diff = expiryDate.getTime() - now.getTime()
+
+    if (diff <= 0) return { expired: true, time: 'Expired', hoursLeft: 0 }
+
+    const hours = Math.floor(diff / (1000 * 60 * 60))
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+
+    return {
+      expired: false,
+      time: `${hours}h ${minutes}m ${seconds}s`,
+      hoursLeft: hours + minutes / 60,
+    }
+  }
+
   if (loading) return <p className="text-center mt-10">Loading links…</p>
   if (error) return <p className="text-red-500 text-center mt-10">{error}</p>
 
@@ -110,18 +139,17 @@ export default function Dashboard() {
       {/* link cards */}
       <div className="flex flex-col sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {links.map((link) => {
-          const latest = link.isLatest
+          const { time, expired, hoursLeft } = getTimeLeft(link.createdAt, link.expireIn)
 
           return (
             <Card
               key={link._id}
-              className={`relative p-6 space-y-4 transition transform ${
-                latest
+              className={`relative p-6 space-y-4 transition transform ${link.isLatest
                   ? 'bg-green-100 border-green-400 border-2 hover:shadow-xl'
                   : 'bg-white border border-gray-200 hover:shadow-md'
-              }`}
+                }`}
             >
-              {latest && (
+              {link.isLatest && (
                 <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-green-600/90 px-3 py-[2px] text-xs font-medium text-white">
                   Latest
                 </span>
@@ -137,8 +165,29 @@ export default function Dashboard() {
                 </p>
               </div>
 
+              {/* Countdown Timer */}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-700 font-medium">⌛ Expires in:</span>
+                {link.isLatest ? (
+                  <span
+                    className={`font-semibold ${expired
+                        ? 'text-gray-500'
+                        : hoursLeft <= 6
+                          ? 'text-red-600'
+                          : 'text-green-700'
+                      }`}
+                  >
+                    {time}
+                  </span>
+                ) : (
+                  <span className="font-semibold text-gray-500">Expired</span>
+                )}
+              </div>
+
+
+              {/* Action buttons */}
               <div className="flex flex-wrap gap-2">
-                {latest ? (
+                {link.isLatest ? (
                   <>
                     <Button
                       size="sm"
