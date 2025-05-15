@@ -145,8 +145,8 @@ export default function Dashboard() {
             <Card
               key={link._id}
               className={`relative p-6 space-y-4 transition transform ${link.isLatest
-                  ? 'bg-green-100 border-green-400 border-2 hover:shadow-xl'
-                  : 'bg-white border border-gray-200 hover:shadow-md'
+                ? 'bg-green-100 border-green-400 border-2 hover:shadow-xl'
+                : 'bg-white border border-gray-200 hover:shadow-md'
                 }`}
             >
               {link.isLatest && (
@@ -171,10 +171,10 @@ export default function Dashboard() {
                 {link.isLatest ? (
                   <span
                     className={`font-semibold ${expired
-                        ? 'text-gray-500'
-                        : hoursLeft <= 6
-                          ? 'text-red-600'
-                          : 'text-green-700'
+                      ? 'text-gray-500'
+                      : hoursLeft <= 6
+                        ? 'text-red-600'
+                        : 'text-green-700'
                       }`}
                   >
                     {time}
@@ -187,7 +187,7 @@ export default function Dashboard() {
 
               {/* Action buttons */}
               <div className="flex flex-wrap gap-2">
-                {link.isLatest ? (
+                {link.isLatest && !expired ? (
                   <>
                     <Button
                       size="sm"
