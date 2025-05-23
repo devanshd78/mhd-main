@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "export": "next export",
-    "start": "serve out -l 3001",
+    "start": "serve out -l 3000",
     "lint": "next lint"
   },
   "dependencies": {
