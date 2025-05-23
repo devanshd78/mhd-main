@@ -72,6 +72,18 @@ const AdminDashboardPage: React.FC = () => {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
 
+    /* ----------------------- bulk payment modal ------------------------- */
+    const [bulkOpen, setBulkOpen] = useState(false)
+    const [selectedEmps, setSelectedEmps] = useState<string[]>([])
+    const [bulkAmount, setBulkAmount] = useState('')
+    const [bulkLoading, setBulkLoading] = useState(false)
+
+    const toggleEmp = (id: string) => {
+        setSelectedEmps(prev =>
+            prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id]
+        )
+    }
+
     /* ----------------------- upload link modal --------------------------- */
     const [uploadOpen, setUploadOpen] = useState(false)
     const [linkTitle, setLinkTitle] = useState('');
@@ -386,6 +398,87 @@ const AdminDashboardPage: React.FC = () => {
         </div>
     );
 
+    /* ----------------------- bulk handlers ------------------------------ */
+    const handleBulkAdd = async () => {
+        if (bulkLoading || !bulkAmount || selectedEmps.length === 0) return
+        setBulkLoading(true)
+        const adminId = localStorage.getItem('adminId') || ''
+        const amt = parseFloat(bulkAmount)
+        try {
+            await Promise.all(
+                selectedEmps.map(id =>
+                    api.post('/admin/employees/bulk-add', {
+                        employeeIds: selectedEmps,
+                        amount: amt,
+                        adminId,
+                        note: 'Bulk add',
+                    })
+                )
+            )
+            setEmployees(prev =>
+                prev.map(emp =>
+                    selectedEmps.includes(emp.employeeId)
+                        ? { ...emp, balance: emp.balance + amt }
+                        : emp
+                )
+            )
+            setFiltered(prev =>
+                prev.map(emp =>
+                    selectedEmps.includes(emp.employeeId)
+                        ? { ...emp, balance: emp.balance + amt }
+                        : emp
+                )
+            )
+            setBulkOpen(false)
+            setSelectedEmps([])
+            setBulkAmount('')
+        } catch {
+            Swal.fire('Error', 'Bulk add failed', 'error')
+        } finally {
+            setBulkLoading(false)
+        }
+    }
+
+    const handleBulkUpdate = async () => {
+        if (bulkLoading || !bulkAmount || selectedEmps.length === 0) return
+        setBulkLoading(true)
+        const adminId = localStorage.getItem('adminId') || ''
+        const amt = parseFloat(bulkAmount)
+        try {
+            await Promise.all(
+                selectedEmps.map(id =>
+                    api.post('/admin/employees/bulk-update', {
+                        employeeIds: selectedEmps,
+                        newBalance: amt,
+                        adminId,
+                        note: 'Bulk update',
+                    })
+                )
+            )
+            setEmployees(prev =>
+                prev.map(emp =>
+                    selectedEmps.includes(emp.employeeId)
+                        ? { ...emp, balance: amt }
+                        : emp
+                )
+            )
+            setFiltered(prev =>
+                prev.map(emp =>
+                    selectedEmps.includes(emp.employeeId)
+                        ? { ...emp, balance: amt }
+                        : emp
+                )
+            )
+            setBulkOpen(false)
+            setSelectedEmps([])
+            setBulkAmount('')
+        } catch {
+            Swal.fire('Error', 'Bulk update failed', 'error')
+        } finally {
+            setBulkLoading(false)
+        }
+    }
+
     return (
         <div className="px-4 sm:px-6 lg:px-8 py-4 lg:py-8 space-y-6">
             {/* ----------------------- Header ------------------------------- */}
@@ -421,6 +514,14 @@ const AdminDashboardPage: React.FC = () => {
                         New Link
                     </Button>
 
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setBulkOpen(true)}
+                        className="flex items-center gap-1"
+                    >
+                        <PlusIcon className="h-4 w-4" /> Bulk Payment
+                    </Button>
                     {/* 🕑 history */}
                     <Button
                         variant="outline"
@@ -445,6 +546,73 @@ const AdminDashboardPage: React.FC = () => {
                 </div>
             </div>
 
+            <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+                <DialogPortal>
+                    <DialogOverlay className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm" />
+                    <DialogContent className={modalContainer}>
+                        <DialogHeader>
+                            <DialogTitle>Bulk Payment</DialogTitle>
+                            <DialogDescription>Select employees and balance</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-2">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Select Employees</label>
+                                <div className="h-40 overflow-y-auto border rounded px-3 py-2">
+                                    {employees.map(emp => (
+                                        <div key={emp.employeeId} className="flex items-center mb-1">
+                                            <input
+                                                id={`bulk-${emp.employeeId}`}
+                                                type="checkbox"
+                                                value={emp.employeeId}
+                                                checked={selectedEmps.includes(emp.employeeId)}
+                                                onChange={() => {
+                                                    setSelectedEmps(prev =>
+                                                        prev.includes(emp.employeeId)
+                                                            ? prev.filter(id => id !== emp.employeeId)
+                                                            : [...prev, emp.employeeId]
+                                                    )
+                                                }}
+                                                className="mr-2"
+                                            />
+                                            <label htmlFor={`bulk-${emp.employeeId}`} className="flex-1">
+                                                {emp.name} ({emp.email}) — Balance: {emp.balance}
+                                            </label>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Balance Amount</label>
+                                <input
+                                    type="number"
+                                    value={bulkAmount}
+                                    onChange={e => setBulkAmount(e.target.value)}
+                                    className="w-full rounded border px-3 py-2"
+                                    placeholder="Enter amount"
+                                />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button
+                                onClick={handleBulkAdd}
+                                disabled={bulkLoading || !bulkAmount || selectedEmps.length === 0}
+                            >
+                                {bulkLoading ? 'Processing...' : 'Add Balance'}
+                            </Button>
+                            <Button
+                                onClick={handleBulkUpdate}
+                                disabled={bulkLoading || !bulkAmount || selectedEmps.length === 0}
+                            >
+                                {bulkLoading ? 'Processing...' : 'Update Balance'}
+                            </Button>
+                            <DialogClose asChild>
+                                <Button variant="outline">Cancel</Button>
+                            </DialogClose>
+                        </DialogFooter>
+                    </DialogContent>
+                </DialogPortal>
+            </Dialog>
 
             {/* ----------------------- Upload Link Modal -------------------- */}
             <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>

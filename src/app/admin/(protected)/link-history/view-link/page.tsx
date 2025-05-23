@@ -15,6 +15,7 @@ interface Row {
   name: string
   entryCount: number
   employeeTotal: number
+  walletBalance: number
 }
 
 export default function ViewLinkPage() {
@@ -68,6 +69,7 @@ export default function ViewLinkPage() {
                 <TableRow>
                   <TH className="text-sm text-left px-4 py-2">Employee</TH>
                   <TH className="text-sm text-right px-4 py-2"># Entries</TH>
+                  <TH className="text-sm text-right px-4 py-2">Remaining Balance</TH>
                   <TH className="text-sm text-right px-4 py-2">Total (₹)</TH>
                   <TH className="text-sm text-right px-4 py-2">Action</TH>
                 </TableRow>
@@ -77,6 +79,7 @@ export default function ViewLinkPage() {
                   <TableRow key={r.employeeId}>
                     <TableCell className="px-4 py-2 text-sm font-medium">{r.name}</TableCell>
                     <TableCell className="px-4 py-2 text-sm text-right">{r.entryCount}</TableCell>
+                    <TableCell className="px-4 py-2 text-sm text-right">{r.walletBalance}</TableCell>
                     <TableCell className="px-4 py-2 text-sm text-right">{r.employeeTotal.toFixed(2)}</TableCell>
                     <TableCell className="px-4 py-2 text-sm text-right">
                       <Button
