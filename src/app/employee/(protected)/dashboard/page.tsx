@@ -10,6 +10,7 @@ import {
   EyeIcon,
   PlusIcon,
   LogOutIcon,
+  UsersIcon,
 } from 'lucide-react'
 import Swal from 'sweetalert2'
 import 'sweetalert2/dist/sweetalert2.min.css'
@@ -35,29 +36,27 @@ export default function Dashboard() {
   // force re-render for countdown
   const [, forceUpdate] = useState(0)
   useEffect(() => {
-    const interval = setInterval(() => {
-      forceUpdate((n) => n + 1)
-    }, 1000)
+    const interval = setInterval(() => forceUpdate(n => n + 1), 1000)
     return () => clearInterval(interval)
   }, [])
 
+  // fetch balance
   useEffect(() => {
     const empId = localStorage.getItem('employeeId')
     if (!empId) return
 
     api
-      .get(`/employee/balance?employeeId=${empId}`)
-      .then((res) => setBalance(res.data.balance))
-      .catch((err) => console.error('Failed to fetch balance', err))
+      .get<{ balance: number }>(`/employee/balance?employeeId=${empId}`)
+      .then(res => setBalance(res.data.balance))
+      .catch(err => console.error('Failed to fetch balance', err))
   }, [])
 
+  // fetch all links
   useEffect(() => {
     api
       .get<LinkItem[]>('/employee/links', { withCredentials: true })
-      .then((res) => setLinks(res.data))
-      .catch((e) =>
-        setError(e.response?.data?.error || 'Failed to load links.')
-      )
+      .then(res => setLinks(res.data))
+      .catch(e => setError(e.response?.data?.error || 'Failed to load links.'))
       .finally(() => setLoading(false))
   }, [])
 
@@ -127,6 +126,15 @@ export default function Dashboard() {
           <Button
             size="sm"
             variant="outline"
+            onClick={() => router.push('/employee/users')}
+            className="flex items-center gap-1"
+          >
+            <UsersIcon className="h-4 w-4" />
+            Users
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             onClick={handleLogout}
             className="flex items-center gap-1"
           >
@@ -138,7 +146,7 @@ export default function Dashboard() {
 
       {/* link cards */}
       <div className="flex flex-col sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {links.map((link) => {
+        {links.map(link => {
           const { time, expired, hoursLeft } = getTimeLeft(link.createdAt, link.expireIn)
 
           return (
@@ -184,10 +192,22 @@ export default function Dashboard() {
                 )}
               </div>
 
-
               {/* Action buttons */}
               <div className="flex flex-wrap gap-2">
-                {link.isLatest && !expired ? (
+                <Button
+                  size="sm"
+                  onClick={() => goToLink(link._id)}
+                  disabled={navigatingId === link._id}
+                  className="flex items-center gap-1"
+                >
+                  {navigatingId === link._id ? (
+                    <span className="animate-spin h-4 w-4 border-t-2 border-gray-600 rounded-full" />
+                  ) : (
+                    <EyeIcon className="h-4 w-4" />
+                  )}
+                  View Entries
+                </Button>
+                {link.isLatest && !expired && (
                   <>
                     <Button
                       size="sm"
@@ -198,34 +218,7 @@ export default function Dashboard() {
                       <ClipboardCopyIcon className="h-4 w-4" />
                       Copy Link
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => goToLink(link._id)}
-                      disabled={navigatingId === link._id}
-                      className="flex items-center gap-1"
-                    >
-                      {navigatingId === link._id ? (
-                        <span className="animate-spin h-4 w-4 border-t-2 border-gray-600 rounded-full" />
-                      ) : (
-                        <PlusIcon className="h-4 w-4" />
-                      )}
-                      Add Entry
-                    </Button>
                   </>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => goToLink(link._id)}
-                    disabled={navigatingId === link._id}
-                    className="flex items-center gap-1"
-                  >
-                    {navigatingId === link._id ? (
-                      <span className="animate-spin h-4 w-4 border-t-2 border-gray-600 rounded-full" />
-                    ) : (
-                      <EyeIcon className="h-4 w-4" />
-                    )}
-                    View Entries
-                  </Button>
                 )}
               </div>
             </Card>
@@ -235,3 +228,17 @@ export default function Dashboard() {
     </div>
   )
 }
+
+// <Button
+//   size="sm"
+//   onClick={() => goToLink(link._id)}
+//   disabled={navigatingId === link._id}
+//   className="flex items-center gap-1"
+// >
+//   {navigatingId === link._id ? (
+//     <span className="animate-spin h-4 w-4 border-t-2 border-gray-600 rounded-full" />
+//   ) : (
+//     <PlusIcon className="h-4 w-4" />
+//   )}
+//   Add Entry
+// </Button>

@@ -352,6 +352,10 @@ const AdminDashboardPage: React.FC = () => {
         router.push(`/admin/dashboard/history?id=${emp.employeeId}&name=${emp.name}`);
     };
 
+    const handleViewUsers = (emp: Employee) => {
+        router.push(`/admin/dashboard/users?id=${emp.employeeId}&name=${emp.name}`);
+    };
+
     /* logout handler */
     const handleLogout = async () => {
         localStorage.clear()
@@ -738,6 +742,13 @@ const AdminDashboardPage: React.FC = () => {
                                                         onClick={() => handleViewHistory(emp)}
                                                     >
                                                         View History
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-red-100 text-red-800 hover:bg-red-200"
+                                                        onClick={() => handleViewUsers(emp)}
+                                                    >
+                                                        View Users
                                                     </Button>
                                                 </div>
                                             </TableCell>

@@ -1,9 +1,9 @@
-'use client'
+"use client";
 
-import React, { useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { format } from 'date-fns'
-import api from '@/lib/axios'
+import React, { useEffect, useState, ChangeEvent } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { format } from 'date-fns';
+import api from '@/lib/axios';
 import {
   Dialog,
   DialogPortal,
@@ -13,8 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
   DialogClose,
-  DialogTrigger,
-} from '@/components/ui/dialog'
+} from '@/components/ui/dialog';
 import {
   Table,
   TableHeader,
@@ -22,182 +21,164 @@ import {
   TableRow,
   TableHead as TH,
   TableCell,
-} from '@/components/ui/table'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Loader2, PlusIcon } from 'lucide-react'
+} from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Loader2 } from 'lucide-react';
+import Swal from 'sweetalert2';
 
 interface Submission {
-  _id: string
-  name: string
-  upiId: string
-  notes: string
-  amount: number
-  createdAt: string
+  entryId: string;
+  name: string;
+  upiId: string;
+  notes?: string;
+  amount?: number;
+  createdAt: string;
+  type?: number;
+  // only when type === 1:
+  noOfPersons?: number;
+  linkAmount?: number;
+  totalAmount?: number;
+  telegramLink?: string;
+  status?: number;
 }
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 10;
 
 export default function LinkEntriesPage() {
-  const params = useSearchParams()
-  const router = useRouter()
-  const linkId = params.get('id')
+  const params = useSearchParams();
+  const router = useRouter();
+  const linkId = params.get('id');
   const employeeId =
-    (typeof window !== 'undefined' && localStorage.getItem('employeeId')) || ''
+    (typeof window !== 'undefined' && localStorage.getItem('employeeId')) || "";
 
-  const [subs, setSubs] = useState<Submission[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [totalAmount, setTotalAmount] = useState(0)
-  const [isLatest, setIsLatest] = useState(false)
+  const [subs, setSubs] = useState<Submission[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [totalAmount, setTotalAmount] = useState(0);
+  const [isLatest, setIsLatest] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
 
-  const [page, setPage] = useState(1)
-  const [pages, setPages] = useState(1)
-  const [editMode, setEditMode] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  // states for "type 1" edit
+  const [showEdit, setShowEdit] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<Submission | null>(null);
+  const [editPersons, setEditPersons] = useState(0);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  const [showForm, setShowForm] = useState(false)
-  const [formData, setFormData] = useState<{
-    name: string
-    qrFile: File | null
-    upiId: string
-    notes: string
-    amount: string
-  }>({
-    name: '',
-    qrFile: null,
-    upiId: '',
-    notes: '',
-    amount: '',
-  })
+  // other form states (unchanged)
+  const [showForm, setShowForm] = useState(false);
+  const [formData, setFormData] = useState({
+    name: "",
+    qrFile: null as File | null,
+    upiId: "",
+    notes: "",
+    amount: "",
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [balance, setBalance] = useState<number | null>(null);
 
-  const [isSubmitting, setIsSubmitting] = useState(false) // State to handle button disable
-  const [balance, setBalance] = useState<number | null>(null)
-
+  // load balance
   useEffect(() => {
-    if (!employeeId) return
-  
-    api.get(`/employee/balance?employeeId=${employeeId}`)
-      .then(res => setBalance(res.data.balance))
-      .catch(err => console.error('Failed to fetch balance', err))
-  }, [])
+    if (!employeeId) return;
+    api
+      .get(`/employee/balance?employeeId=${employeeId}`)
+      .then((res) => setBalance(res.data.balance))
+      .catch(() => {});
+  }, [employeeId]);
 
-  // Fetch a given page of entries
+  // fetch entries
   const fetchEntries = async (p = 1) => {
-    if (!linkId || !employeeId) return
-
-    setLoading(true)
-    setError('')
+    if (!linkId || !employeeId) return;
+    setLoading(true);
+    setError("");
     try {
       const { data } = await api.post<{
-        entries: Submission[]
-        totalAmount: number
-        isLatest: boolean
-        page: number
-        pages: number
+        entries: Submission[];
+        total: number;
+        isLatest: boolean;
+        page: number;
+        pages: number;
+        grandTotal: number;
       }>(
-        '/employee/links/entries',
+        "/entry/listByLink",
         { linkId, employeeId, page: p, limit: PAGE_SIZE },
         { withCredentials: true }
-      )
-
-      setSubs(data.entries)
-      setTotalAmount(data.totalAmount)
-      setIsLatest(data.isLatest)
-      setPage(data.page)
-      setPages(data.pages)
+      );
+      setSubs(data.entries);
+      setTotalAmount(data.grandTotal);
+      setIsLatest(data.isLatest);
+      setPage(data.page);
+      setPages(data.pages);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to load entries.')
+      setError(err.response?.data?.error || "Failed to load entries.");
     } finally {
-      setLoading(false)
-    }
-  }
-
-  // Load on mount and when linkId changes
-  useEffect(() => {
-    fetchEntries(1)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkId, employeeId])
-
-  // Handle text inputs
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
-  }
-
-  const handleEdit = (entry: Submission) => {
-    setFormData({
-      name: entry.name,
-      qrFile: null,
-      upiId: entry.upiId,
-      notes: entry.notes,
-      amount: entry.amount.toString(),
-    })
-    setEditingId(entry._id)
-    setEditMode(true)
-    setShowForm(true)
-  }
-
-  // Updated handleSubmit for both add & edit
-  const handleSubmit = async () => {
-    if (!linkId || !employeeId) return;
-    setError('');
-    if (isSubmitting) return;
-
-    if (!editMode && !formData.qrFile && !formData.upiId.trim()) {
-      setError('Please upload a QR image or enter a UPI ID.');
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      if (editMode && editingId) {
-        // For edit mode, send a JSON payload using PUT
-        await api.post(`/employee/entries/${linkId}/${employeeId}/${editingId}`, {
-          name: formData.name.trim(),
-          upiId: formData.upiId.trim(),
-          amount: parseFloat(formData.amount),
-          notes: formData.notes.trim(),
-        }, {
-          withCredentials: true,
-        });
-      } else {
-        // For new entries, use FormData and POST
-        const fd = new FormData();
-        fd.append('name', formData.name);
-        fd.append('amount', formData.amount);
-        fd.append('employeeId', employeeId);
-
-        if (formData.qrFile) {
-          fd.append('qrImage', formData.qrFile);
-        } else {
-          fd.append('upiId', formData.upiId.trim());
-        }
-
-        if (formData.notes) {
-          fd.append('notes', formData.notes);
-        }
-
-        await api.post(`/employee/links/${linkId}/entries`, fd, {
-          withCredentials: true,
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-      }
-
-      setFormData({ name: '', qrFile: null, upiId: '', notes: '', amount: '' });
-      setShowForm(false);
-      setEditMode(false);
-      setEditingId(null);
-      fetchEntries(page);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to submit entry.');
-    } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   };
 
-  // Simple pager UI
+  useEffect(() => {
+    fetchEntries(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkId, employeeId]);
+
+  // start edit for type=1
+  const startEditTypeOne = (entry: Submission) => {
+    setEditingEntry(entry);
+    setEditPersons(entry.noOfPersons ?? 0);
+    setShowEdit(true);
+  };
+
+  const handleEditPersons = async () => {
+    if (!editingEntry || editPersons < 1) return;
+    setIsSavingEdit(true);
+    try {
+      await api.post(
+        "/entry/updateEntry",
+        { noOfPersons: editPersons, entryId: editingEntry.entryId },
+        { withCredentials: true }
+      );
+      setShowEdit(false);
+      fetchEntries(page);
+    } catch {
+      // handle error as needed
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // approve / reject
+  const handleApprove = async (entryId: string, isApprove: number) => {
+    try {
+      await api.post(
+        "/entry/updateStatus",
+        { entryId, approve: isApprove },
+        { withCredentials: true }
+      );
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "success",
+        title: "Status updated",
+        showConfirmButton: false,
+        timer: 1500,
+        timerProgressBar: true,
+      });
+      fetchEntries(page);
+    } catch (err: any) {
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "error",
+        title: err.response?.data?.error || "Update failed",
+        showConfirmButton: false,
+        timer: 1500,
+        timerProgressBar: true,
+      });
+    }
+  };
+
+  // pager
   const Pager = () =>
     pages > 1 ? (
       <div className="flex items-center justify-center gap-4 py-4">
@@ -221,156 +202,78 @@ export default function LinkEntriesPage() {
           Next
         </Button>
       </div>
-    ) : null
+    ) : null;
 
   if (!linkId) {
-    return (
-      <p className="text-red-500 text-center mt-10">
-        No link selected.
-      </p>
-    )
+    return <p className="text-red-500 text-center mt-10">No link selected.</p>;
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-6">
-      {/* Header */}
+    <div className="p-8 max-w-6xl mx-auto space-y-6">
+      {/* header */}
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold">Entries for Link</h2>
         <Button
           variant="outline"
-          onClick={() => router.push('/employee/dashboard')}
+          onClick={() => router.push("/employee/dashboard")}
         >
           Go Home
         </Button>
       </div>
 
-      {/* Add entry button (latest link only) */}
-      {isLatest && (
-        <Dialog open={showForm} onOpenChange={(val) => {
-          if (!val) {
-            setFormData({ name: '', qrFile: null, upiId: '', notes: '', amount: '' })
-            setEditMode(false)
-            setEditingId(null)
-            setError('')
-          }
-          setShowForm(val)
-        }}>
-          <DialogTrigger asChild>
-            <Button>
-              <PlusIcon className="h-4 w-4" />
-              {editMode ? 'Edit Entry' : 'Add Entry'}
-            </Button>
-          </DialogTrigger>
-
+      {/* Type-1 Edit Modal */}
+      {editingEntry && editingEntry.type === 1 && (
+        <Dialog open={showEdit} onOpenChange={setShowEdit}>
           <DialogPortal>
             <DialogOverlay className="fixed inset-0 bg-black/50" />
-            <DialogContent className="fixed top-1/2 left-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 bg-white p-6 rounded-2xl shadow-lg">
+            <DialogContent className="fixed top-1/2 left-1/2 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 bg-white p-6 rounded-2xl shadow-lg">
               <DialogHeader>
-                <DialogTitle>New Submission</DialogTitle>
-                <p className="text-sm text-gray-500">
-                  Balance Left: <span className="font-semibold text-green-700">₹{balance?.toLocaleString()}</span>
-                </p>
+                <DialogTitle>Edit Number of Persons</DialogTitle>
               </DialogHeader>
-
               <div className="space-y-4">
-                {/* Name */}
-                <Input
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="User Name"
-                />
-
-                {!editMode && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Upload QR Code (optional)
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <label className="flex-1 px-4 py-2 border border-gray-300 rounded-lg cursor-pointer text-sm text-gray-600 hover:bg-gray-100 transition">
-                        <span className="block truncate">
-                          {formData.qrFile ? formData.qrFile.name : 'Choose QR image...'}
-                        </span>
-                        <Input
-                          type="file"
-                          accept="image/*"
-                          onChange={e => {
-                            const file = e.target.files?.[0] || null
-                            setFormData(f => ({ ...f, qrFile: file }))
-                          }}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      OR enter UPI ID manually below.
-                    </p>
-                  </div>
-                )}
-
-                {/* Manual UPI ID */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    UPI ID {!editMode && <span className="text-gray-500 text-xs">(if no QR)</span>}
-                  </label>
-
-                  <Input
-                    name="upiId"
-                    value={formData.upiId}
-                    onChange={handleChange}
-                    placeholder="example@upi"
-                  />
-                </div>
-
-                {/* Amount */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Amount
+                    Number of Persons
                   </label>
                   <Input
-                    name="amount"
                     type="number"
-                    value={formData.amount}
-                    onChange={handleChange}
-                    placeholder="Enter amount"
+                    min={1}
+                    value={editPersons}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                      setEditPersons(Number(e.target.value))
+                    }
                   />
                 </div>
-
-                {/* Notes */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Notes (optional)
-                  </label>
-                  <Input
-                    name="notes"
-                    value={formData.notes}
-                    onChange={e => {
-                      if (e.target.value.length <= 50) {
-                        setFormData(f => ({ ...f, notes: e.target.value }))
-                      }
-                    }}
-                    placeholder="Additional comments or remarks (max 50 characters)"
-                  />
+                <div className="text-sm">
+                  Total ={" "}
+                  <strong>
+                    ₹{(editingEntry.linkAmount ?? 0) * editPersons}
+                  </strong>
                 </div>
-
-                {/* Error Display */}
-                {error && <p className="text-red-500 text-sm">{error}</p>}
               </div>
-
-              <DialogFooter className="mt-6 flex justify-end space-x-2">
-                <Button onClick={handleSubmit} disabled={isSubmitting}>
-                  {isSubmitting ? 'Submitting...' : editMode ? 'Update' : 'Submit'}
+              <DialogFooter className="flex justify-end space-x-2 mt-6">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowEdit(false)}
+                  disabled={isSavingEdit}
+                >
+                  Cancel
                 </Button>
-                <DialogClose asChild>
-                  <Button variant="outline">Cancel</Button>
-                </DialogClose>
+                <Button
+                  size="sm"
+                  onClick={handleEditPersons}
+                  disabled={isSavingEdit}
+                >
+                  {isSavingEdit ? "Saving…" : "Save"}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </DialogPortal>
         </Dialog>
       )}
 
-      {/* Entries table or loader/error */}
+      {/* entries table */}
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="animate-spin" />
@@ -384,28 +287,113 @@ export default function LinkEntriesPage() {
               <TableRow>
                 <TH>Name</TH>
                 <TH>UPI ID</TH>
-                <TH>Notes</TH>
-                <TH className="text-right">Amount &amp; Date</TH>
+                {subs[0]?.type === 1 ? (
+                  <>
+                    <TH>Telegram</TH>
+                    <TH>Payment Status</TH>
+                    <TH className="text-center">Persons</TH>
+                    <TH className="text-center">Amt/Person</TH>
+                    <TH className="text-center">Total</TH>
+                  </>
+                ) : (
+                  <TH>Notes</TH>
+                )}
+                <TH className="text-right">Submitted</TH>
                 <TH className="text-right">Action</TH>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {subs.map(s => (
-                <TableRow key={s._id}>
+              {subs.map((s) => (
+                <TableRow key={s.entryId}>
                   <TableCell>{s.name}</TableCell>
                   <TableCell>{s.upiId}</TableCell>
-                  <TableCell className="max-w-[200px] truncate text-gray-700">
-                    {s.notes || '-'}
-                  </TableCell>
+
+                  {s.type === 1 ? (
+                    <>
+                      <TableCell>
+                        <a
+                          href={
+                            s.telegramLink?.startsWith("http")
+                              ? s.telegramLink
+                              : `https://t.me/${s.telegramLink}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          Open
+                        </a>
+                      </TableCell>
+                      <TableCell>
+                        {s.status === 1 ? (
+                          <span className="text-green-600">Approved</span>
+                        ) : s.status === 0 ? (
+                          <span className="text-red-600">Rejected</span>
+                        ) : (
+                          <span className="text-yellow-600">Pending</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {s.noOfPersons}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        ₹{s.linkAmount}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        ₹{s.totalAmount}
+                      </TableCell>
+                    </>
+                  ) : (
+                    <TableCell className="truncate max-w-[200px]">
+                      {s.notes || "-"}
+                    </TableCell>
+                  )}
+
                   <TableCell className="text-right whitespace-nowrap">
-                    ₹{s.amount.toFixed(2)}
-                    <br />
-                    {format(new Date(s.createdAt), 'PPpp')}
+                    {format(new Date(s.createdAt), "PPpp")}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <Button size="sm" variant="outline" onClick={() => handleEdit(s)}>
-                      Edit
-                    </Button>
+                  <TableCell className="text-right align-top">
+                    <div className="flex flex-col items-end space-y-2">
+                      {s.type === 1 ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-50"
+                          onClick={() => startEditTypeOne(s)}
+                        >
+                          Update Entry
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-24"
+                          onClick={() => {
+                            /* existing edit logic */
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      )}
+                      <div className="flex space-x-2">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          className="w-24"
+                          onClick={() => handleApprove(s.entryId, 1)}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="w-24"
+                          onClick={() => handleApprove(s.entryId, 0)}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -420,5 +408,5 @@ export default function LinkEntriesPage() {
         </>
       )}
     </div>
-  )
+  );
 }

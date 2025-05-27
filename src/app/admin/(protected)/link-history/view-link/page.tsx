@@ -1,116 +1,201 @@
-'use client'
+"use client";
 
-import React, { useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import api from '@/lib/axios'
+import React, { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { format } from "date-fns";
+import api from "@/lib/axios";
 import {
-  Table, TableHeader, TableBody, TableRow,
-  TableHead as TH, TableCell,
-} from '@/components/ui/table'
-import { Loader2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead as TH,
+  TableCell,
+} from "@/components/ui/table";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
-interface Row {
-  employeeId: string
-  name: string
-  entryCount: number
-  employeeTotal: number
-  walletBalance: number
+interface Submission {
+  _id: string;
+  entryId?: string;
+  linkId: string;
+  employeeId?: string;
+  name: string;
+  upiId: string;
+  notes?: string;
+  amount?: number;
+  createdAt: string;
+  type?: number;
+  status?: number;
+  noOfPersons?: number;
+  linkAmount?: number;
+  totalAmount?: number;
+  telegramLink?: string;
 }
 
-export default function ViewLinkPage() {
-  const params = useSearchParams()
-  const router = useRouter()
-  const linkId = params.get('id')
+interface ApiResponse {
+  title: string;
+  entries: Submission[];
+}
 
-  const [rows, setRows] = useState<Row[]>([])
-  const [grand, setGrand] = useState(0)
-  const [title, setTitle] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [buttonLoadingId, setButtonLoadingId] = useState<string | null>(null)
+export default function AdminLinkEntriesPage() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const linkId = params.get("id");
+
+  const [entries, setEntries] = useState<Submission[]>([]);
+  const [titleHref, setTitleHref] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!linkId) return
-    setLoading(true)
-    api.post<{ rows: Row[]; grandTotal: number; title: string }>(
-      '/admin/links/summary', { linkId }, { withCredentials: true })
-      .then(r => { setRows(r.data.rows); setGrand(r.data.grandTotal); setTitle(r.data.title) })
-      .catch(e => setError(e.response?.data?.error || 'Failed to load data.'))
-      .finally(() => setLoading(false))
-  }, [linkId])
+    if (!linkId) return;
+    setLoading(true);
+    setError("");
+    api
+      .post<ApiResponse>("/admin/links/entries", { linkId }, { withCredentials: true })
+      .then((res) => {
+        setTitleHref(res.data.title);
+        setEntries(res.data.entries || []);
+      })
+      .catch((err) =>
+        setError(err.response?.data?.error || "Failed to load entries.")
+      )
+      .finally(() => setLoading(false));
+  }, [linkId]);
 
-  if (!linkId) return <p className="text-red-500 p-8">No link selected.</p>
+  if (!linkId) {
+    return (
+      <p className="text-red-500 text-center p-8">No link selected.</p>
+    );
+  }
+
+  const groupEntries = entries.filter((e) => e.type === 1);
+  const individualEntries = entries.filter((e) => e.type !== 1);
 
   return (
-    <div className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6">
-      {/* header stacks on mobile, row layout on ≥sm */}
+    <div className="p-8 max-w-6xl mx-auto space-y-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-          Summary for “{title || linkId}”
+        <h1 className="text-2xl font-bold">
+          <a
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-black-600"
+          >
+            Entries for Link:-  {titleHref}
+          </a>
         </h1>
-        <Button variant="outline" onClick={() => router.back()} className="mt-2 sm:mt-0">
+        <Button variant="outline" onClick={() => router.back()}>
           ← Back
         </Button>
       </div>
 
+      {/* Loading / Error */}
       {loading ? (
-        <div className="flex justify-center py-20">
-          <Loader2 className="animate-spin h-10 w-10 text-gray-500" />
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
         </div>
       ) : error ? (
         <p className="text-red-500 text-center">{error}</p>
       ) : (
         <>
-          {/* Table with horizontal scrolling on small screens */}
-          <div className="overflow-x-auto rounded-md shadow-lg">
-            <Table className="min-w-full bg-white">
-              <TableHeader className="bg-gray-100">
-                <TableRow>
-                  <TH className="text-sm text-left px-4 py-2">Employee</TH>
-                  <TH className="text-sm text-right px-4 py-2"># Entries</TH>
-                  <TH className="text-sm text-right px-4 py-2">Remaining Balance</TH>
-                  <TH className="text-sm text-right px-4 py-2">Total (₹)</TH>
-                  <TH className="text-sm text-right px-4 py-2">Action</TH>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((r) => (
-                  <TableRow key={r.employeeId}>
-                    <TableCell className="px-4 py-2 text-sm font-medium">{r.name}</TableCell>
-                    <TableCell className="px-4 py-2 text-sm text-right">{r.entryCount}</TableCell>
-                    <TableCell className="px-4 py-2 text-sm text-right">{r.walletBalance}</TableCell>
-                    <TableCell className="px-4 py-2 text-sm text-right">{r.employeeTotal.toFixed(2)}</TableCell>
-                    <TableCell className="px-4 py-2 text-sm text-right">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={buttonLoadingId === r.employeeId}
-                        onClick={() => {
-                          setButtonLoadingId(r.employeeId)
-                          router.push(`/admin/dashboard/view?linkid=${linkId}&empid=${r.employeeId}`)
-                        }}
-                      >
-                        {buttonLoadingId === r.employeeId ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          'View Entries'
-                        )}
-                      </Button>
-                    </TableCell>
+          {/* Group Entries Table */}
+          {groupEntries.length > 0 && (
+            <div className="overflow-x-auto bg-white shadow rounded-lg">
+              <h2 className="p-4 text-lg font-semibold">Entries by Users</h2>
+              <Table className="min-w-full">
+                <TableHeader className="bg-gray-100">
+                  <TableRow>
+                    <TH className="px-4 py-2 text-left">Name</TH>
+                    <TH className="px-4 py-2 text-left">UPI ID</TH>
+                    <TH className="px-4 py-2 text-left">Telegram</TH>
+                    <TH className="px-4 py-2 text-center"># Persons</TH>
+                    <TH className="px-4 py-2 text-right">Amt/Person</TH>
+                    <TH className="px-4 py-2 text-right">Total</TH>
+                    <TH className="px-4 py-2 text-center">Status</TH>
+                    <TH className="px-4 py-2 text-right">Submitted At</TH>
                   </TableRow>
-                ))}
-              </TableBody>
+                </TableHeader>
+                <TableBody>
+                  {groupEntries.map((e) => (
+                    <TableRow key={e._id} className="hover:bg-gray-50">
+                      <TableCell className="px-4 py-2">{e.name}</TableCell>
+                      <TableCell className="px-4 py-2">{e.upiId}</TableCell>
+                      <TableCell className="px-4 py-2">
+                        {e.telegramLink ? (
+                          <a
+                            href={
+                              e.telegramLink.startsWith("http")
+                                ? e.telegramLink
+                                : `https://t.me/${e.telegramLink.replace(/^@/, "")}`
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            Open
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell className="px-4 py-2 text-center">{e.noOfPersons}</TableCell>
+                      <TableCell className="px-4 py-2 text-right">₹{e.linkAmount}</TableCell>
+                      <TableCell className="px-4 py-2 text-right">₹{e.totalAmount}</TableCell>
+                      <TableCell className="px-4 py-2 text-center">
+                        {e.status === 1 ? (
+                          <span className="text-green-600">Approved</span>
+                        ) : e.status === 0 ? (
+                          <span className="text-red-600">Rejected</span>
+                        ) : (
+                          <span className="text-yellow-600">Pending</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="px-4 py-2 text-right whitespace-nowrap">
+                        {format(new Date(e.createdAt), "PPpp")}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
 
-            </Table>
-          </div>
-
-          {/* Grand Total */}
-          <div className="text-right text-lg font-semibold pt-4 text-gray-900">
-            Grand Total: ₹{grand.toFixed(2)}
-          </div>
+          {/* Individual Entries Table */}
+          {individualEntries.length > 0 && (
+            <div className="overflow-x-auto bg-white shadow rounded-lg">
+              <h2 className="p-4 text-lg font-semibold">Entries by Employees</h2>
+              <Table className="min-w-full">
+                <TableHeader className="bg-gray-100">
+                  <TableRow>
+                    <TH className="px-4 py-2 text-left">Name</TH>
+                    <TH className="px-4 py-2 text-left">UPI ID</TH>
+                    <TH className="px-4 py-2 text-right">Amount</TH>
+                    <TH className="px-4 py-2 text-left">Notes</TH>
+                    <TH className="px-4 py-2 text-right">Submitted At</TH>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {individualEntries.map((e) => (
+                    <TableRow key={e._id} className="hover:bg-gray-50">
+                      <TableCell className="px-4 py-2">{e.name}</TableCell>
+                      <TableCell className="px-4 py-2">{e.upiId}</TableCell>
+                      <TableCell className="px-4 py-2 text-right">₹{e.amount}</TableCell>
+                      <TableCell className="px-4 py-2 truncate max-w-xs">
+                        {e.notes || "—"}
+                      </TableCell>
+                      <TableCell className="px-4 py-2 text-right whitespace-nowrap">
+                        {format(new Date(e.createdAt), "PPpp")}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </>
       )}
     </div>
-  )
+  );
 }
