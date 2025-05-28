@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import Swal from 'sweetalert2';
 
 interface Employee {
   employeeId: string;
@@ -76,7 +77,7 @@ export default function AuthPage() {
     setFormData(prev => ({ ...prev, communityLeader: value }));
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (submitting) return;
     setSubmitting(true);
@@ -101,8 +102,18 @@ export default function AuthPage() {
       const userId = data.userId ?? data.user?.userId;
       if (userId) localStorage.setItem('userId', userId);
       router.push('/user/dashboard');
-    } catch (err) {
+    } catch (err: any) {
       console.error('API error:', err);
+      const msg =
+        err.response?.data?.message ||
+        'Something went wrong. Please try again.';
+      Swal.fire({
+        icon: 'error',
+        title: 'Oops...',
+        text: "User Already Exists",
+        timerProgressBar: true,
+        timer: 3000,
+      });
     } finally {
       setSubmitting(false);
     }
