@@ -16,6 +16,7 @@ export default function EmployeeAuth() {
   const [formData, setFormData] = useState({ name: '', email: '', password: '' })
   const [isSignUp, setIsSignUp] = useState(false)
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const router = useRouter()
   const [loading, setLoading] = useState(false)
 
@@ -27,6 +28,7 @@ export default function EmployeeAuth() {
   const handleAction = async () => {
     if (loading) return
     setError('')
+    setSuccessMessage('')
     setLoading(true)
     try {
       const endpoint = isSignUp ? '/employee/register' : '/employee/login'
@@ -36,8 +38,14 @@ export default function EmployeeAuth() {
 
       const { data } = await post<AuthResponse>(endpoint, payload)
 
-      localStorage.setItem('employeeId', data.employeeId)
-      router.replace('/employee/dashboard')
+      if (isSignUp) {
+        // Show verification message instead of redirect
+        setSuccessMessage('Your account is pending verification by an administrator.')
+      } else {
+        // Login flow
+        localStorage.setItem('employeeId', data.employeeId)
+        router.replace('/employee/dashboard')
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Something went wrong')
     } finally {
@@ -53,6 +61,13 @@ export default function EmployeeAuth() {
             {isSignUp ? 'Employee Register' : 'Employee Login'}
           </h1>
 
+          {/* Success message after sign-up */}
+          {successMessage && (
+            <p className="text-center text-green-600 mb-4">
+              {successMessage}
+            </p>
+          )}
+
           {isSignUp && (
             <Input
               name="name"
@@ -60,6 +75,7 @@ export default function EmployeeAuth() {
               onChange={handleChange}
               placeholder="Full Name"
               className="w-full mb-4"
+              disabled={!!successMessage}
             />
           )}
 
@@ -70,6 +86,7 @@ export default function EmployeeAuth() {
             onChange={handleChange}
             placeholder="employee@example.com"
             className="w-full mb-4"
+            disabled={!!successMessage}
           />
           <Input
             name="password"
@@ -78,6 +95,7 @@ export default function EmployeeAuth() {
             onChange={handleChange}
             placeholder="••••••••"
             className="w-full mb-6"
+            disabled={!!successMessage}
           />
 
           {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
@@ -85,13 +103,18 @@ export default function EmployeeAuth() {
           <Button
             onClick={handleAction}
             className="w-full bg-[#800000] text-white py-2 rounded-md hover:bg-[#B53B56] transition"
-            disabled={loading}
+            disabled={loading || !!successMessage}
           >
             {loading ? 'Please wait...' : isSignUp ? 'Sign Up' : 'Login'}
           </Button>
+
           <div className="mt-4 text-center">
             <button
-              onClick={() => setIsSignUp(!isSignUp)}
+              onClick={() => {
+                setIsSignUp(prev => !prev)
+                setError('')
+                setSuccessMessage('')
+              }}
               className="text-sm text-[#800000] hover:underline"
             >
               {isSignUp

@@ -35,6 +35,7 @@ interface Employee {
     email: string
     employeeId: string
     balance: number
+    isApproved: number
 }
 
 interface LinkEntry {
@@ -77,12 +78,6 @@ const AdminDashboardPage: React.FC = () => {
     const [selectedEmps, setSelectedEmps] = useState<string[]>([])
     const [bulkAmount, setBulkAmount] = useState('')
     const [bulkLoading, setBulkLoading] = useState(false)
-
-    const toggleEmp = (id: string) => {
-        setSelectedEmps(prev =>
-            prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id]
-        )
-    }
 
     /* ----------------------- upload link modal --------------------------- */
     const [uploadOpen, setUploadOpen] = useState(false)
@@ -182,6 +177,67 @@ const AdminDashboardPage: React.FC = () => {
             .catch(() => setError('Failed to load links.'))
             .finally(() => setLinksLoading(false));
     };
+
+    const handleApprove = async (emp: Employee) => {
+        try {
+            await api.post('/admin/employees/approve', {
+                employeeId: emp.employeeId,
+            });
+            Swal.fire('Approved!', `${emp.name} can now log in.`, 'success');
+
+            // update in-place
+            setEmployees(prev =>
+                prev.map(e =>
+                    e.employeeId === emp.employeeId ? { ...e, isApproved: 1 } : e
+                )
+            );
+            setFiltered(prev =>
+                prev.map(e =>
+                    e.employeeId === emp.employeeId ? { ...e, isApproved: 1 } : e
+                )
+            );
+        } catch {
+            Swal.fire('Error', 'Could not approve employee.', 'error');
+        }
+    };
+
+    const handleReject = async (emp: Employee) => {
+        // 1️⃣ Ask for confirmation
+        const result = await Swal.fire({
+            title: 'Are you sure?',
+            text: `Reject ${emp.name}’s registration request?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, reject',
+            cancelButtonText: 'Cancel',
+        });
+
+        if (!result.isConfirmed) return; // abort if they cancel
+
+        // 2️⃣ Perform the reject
+        try {
+            await api.post('/admin/employees/reject', {
+                employeeId: emp.employeeId,
+            });
+
+            Swal.fire(
+                'Rejected!',
+                `${emp.name}’s registration request has been rejected.`,
+                'success'
+            );
+
+            // 3️⃣ Remove from pending lists
+            setEmployees(prev =>
+                prev.filter(e => e.employeeId !== emp.employeeId)
+            );
+            setFiltered(prev =>
+                prev.filter(e => e.employeeId !== emp.employeeId)
+            );
+        } catch {
+            Swal.fire('Error', 'Could not reject employee.', 'error');
+        }
+    };
+
 
 
     // ----------------------- view links --------------------------
@@ -750,6 +806,24 @@ const AdminDashboardPage: React.FC = () => {
                                                     >
                                                         View Users
                                                     </Button>
+                                                    {!emp.isApproved && (
+                                                        <>
+                                                            <Button
+                                                                size="sm"
+                                                                className="bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
+                                                                onClick={() => handleApprove(emp)}
+                                                            >
+                                                                Approve
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                className="bg-red-100 text-red-800 hover:bg-red-200"
+                                                                onClick={() => handleReject(emp)}
+                                                            >
+                                                                Reject
+                                                            </Button>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </TableCell>
 
