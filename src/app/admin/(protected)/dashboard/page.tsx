@@ -24,10 +24,11 @@ import {
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Loader2, Search, PlusIcon, Clock, LogOutIcon } from 'lucide-react'
+import { Loader2, Search, PlusIcon, Clock, LogOutIcon, MoreVertical } from 'lucide-react'
 import { format, set } from 'date-fns'
 import api from '@/lib/axios'
 import Swal from 'sweetalert2'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 
 interface Employee {
     _id: string
@@ -46,6 +47,7 @@ interface LinkEntry {
     target: number
     amount: number
     expireIn: number
+    userEntries?: any[] // Add this property to fix the error
 }
 
 interface Submission {
@@ -72,12 +74,6 @@ const AdminDashboardPage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
-
-    /* ----------------------- bulk payment modal ------------------------- */
-    const [bulkOpen, setBulkOpen] = useState(false)
-    const [selectedEmps, setSelectedEmps] = useState<string[]>([])
-    const [bulkAmount, setBulkAmount] = useState('')
-    const [bulkLoading, setBulkLoading] = useState(false)
 
     /* ----------------------- upload link modal --------------------------- */
     const [uploadOpen, setUploadOpen] = useState(false)
@@ -399,10 +395,17 @@ const AdminDashboardPage: React.FC = () => {
     };
 
     // -------------------- view submissions ------------------------
-    const handleViewSubmissions = (link: LinkEntry) => {
-        if (!link._id || !selectedEmp?.employeeId) return
-        router.push(`/admin/dashboard/view?linkid=${link._id}&empid=${selectedEmp.employeeId}`)
-    }
+const handleViewSubmissions = (link: LinkEntry) => {
+  if (!link._id || !selectedEmp?.employeeId) return;
+
+  const hasUserEntries = Array.isArray(link.userEntries) && link.userEntries.length > 0;
+  const subpath       = hasUserEntries ? "user-view" : "view";
+
+  router.push(
+    `/admin/dashboard/${subpath}?linkid=${link._id}&empid=${selectedEmp.employeeId}`
+  );
+};
+
 
     const handleViewHistory = (emp: Employee) => {
         router.push(`/admin/dashboard/history?id=${emp.employeeId}&name=${emp.name}`);
@@ -458,87 +461,6 @@ const AdminDashboardPage: React.FC = () => {
         </div>
     );
 
-    /* ----------------------- bulk handlers ------------------------------ */
-    const handleBulkAdd = async () => {
-        if (bulkLoading || !bulkAmount || selectedEmps.length === 0) return
-        setBulkLoading(true)
-        const adminId = localStorage.getItem('adminId') || ''
-        const amt = parseFloat(bulkAmount)
-        try {
-            await Promise.all(
-                selectedEmps.map(id =>
-                    api.post('/admin/employees/bulk-add', {
-                        employeeIds: selectedEmps,
-                        amount: amt,
-                        adminId,
-                        note: 'Bulk add',
-                    })
-                )
-            )
-            setEmployees(prev =>
-                prev.map(emp =>
-                    selectedEmps.includes(emp.employeeId)
-                        ? { ...emp, balance: emp.balance + amt }
-                        : emp
-                )
-            )
-            setFiltered(prev =>
-                prev.map(emp =>
-                    selectedEmps.includes(emp.employeeId)
-                        ? { ...emp, balance: emp.balance + amt }
-                        : emp
-                )
-            )
-            setBulkOpen(false)
-            setSelectedEmps([])
-            setBulkAmount('')
-        } catch {
-            Swal.fire('Error', 'Bulk add failed', 'error')
-        } finally {
-            setBulkLoading(false)
-        }
-    }
-
-    const handleBulkUpdate = async () => {
-        if (bulkLoading || !bulkAmount || selectedEmps.length === 0) return
-        setBulkLoading(true)
-        const adminId = localStorage.getItem('adminId') || ''
-        const amt = parseFloat(bulkAmount)
-        try {
-            await Promise.all(
-                selectedEmps.map(id =>
-                    api.post('/admin/employees/bulk-update', {
-                        employeeIds: selectedEmps,
-                        newBalance: amt,
-                        adminId,
-                        note: 'Bulk update',
-                    })
-                )
-            )
-            setEmployees(prev =>
-                prev.map(emp =>
-                    selectedEmps.includes(emp.employeeId)
-                        ? { ...emp, balance: amt }
-                        : emp
-                )
-            )
-            setFiltered(prev =>
-                prev.map(emp =>
-                    selectedEmps.includes(emp.employeeId)
-                        ? { ...emp, balance: amt }
-                        : emp
-                )
-            )
-            setBulkOpen(false)
-            setSelectedEmps([])
-            setBulkAmount('')
-        } catch {
-            Swal.fire('Error', 'Bulk update failed', 'error')
-        } finally {
-            setBulkLoading(false)
-        }
-    }
-
     return (
         <div className="px-4 sm:px-6 lg:px-8 py-4 lg:py-8 space-y-6">
             {/* ----------------------- Header ------------------------------- */}
@@ -573,106 +495,8 @@ const AdminDashboardPage: React.FC = () => {
                         <PlusIcon className="h-4 w-4" />
                         New Link
                     </Button>
-
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setBulkOpen(true)}
-                        className="flex items-center gap-1"
-                    >
-                        <PlusIcon className="h-4 w-4" /> Bulk Payment
-                    </Button>
-                    {/* 🕑 history */}
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => router.push('/admin/link-history')}
-                        className="flex items-center gap-1"
-                    >
-                        <Clock className="h-4 w-4" />
-                        Link History
-                    </Button>
-
-                    {/* 🔓 logout – always last, pushes to far right on wider screens */}
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleLogout}
-                        className="flex items-center gap-1 sm:ml-auto"
-                    >
-                        <LogOutIcon className="h-4 w-4" />
-                        Logout
-                    </Button>
                 </div>
             </div>
-
-            <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
-                <DialogPortal>
-                    <DialogOverlay className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm" />
-                    <DialogContent className={modalContainer}>
-                        <DialogHeader>
-                            <DialogTitle>Bulk Payment</DialogTitle>
-                            <DialogDescription>Select employees and balance</DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-2">
-                            <div>
-                                <label className="block text-sm font-medium mb-1">Select Employees</label>
-                                <div className="h-40 overflow-y-auto border rounded px-3 py-2">
-                                    {employees.map(emp => (
-                                        <div key={emp.employeeId} className="flex items-center mb-1">
-                                            <input
-                                                id={`bulk-${emp.employeeId}`}
-                                                type="checkbox"
-                                                value={emp.employeeId}
-                                                checked={selectedEmps.includes(emp.employeeId)}
-                                                onChange={() => {
-                                                    setSelectedEmps(prev =>
-                                                        prev.includes(emp.employeeId)
-                                                            ? prev.filter(id => id !== emp.employeeId)
-                                                            : [...prev, emp.employeeId]
-                                                    )
-                                                }}
-                                                className="mr-2"
-                                            />
-                                            <label htmlFor={`bulk-${emp.employeeId}`} className="flex-1">
-                                                {emp.name} ({emp.email}) — Balance: {emp.balance}
-                                            </label>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium mb-1">Balance Amount</label>
-                                <input
-                                    type="number"
-                                    value={bulkAmount}
-                                    onChange={e => setBulkAmount(e.target.value)}
-                                    className="w-full rounded border px-3 py-2"
-                                    placeholder="Enter amount"
-                                />
-                            </div>
-                        </div>
-                        <DialogFooter>
-                            <Button
-                                onClick={handleBulkAdd}
-                                disabled={bulkLoading || !bulkAmount || selectedEmps.length === 0}
-                            >
-                                {bulkLoading ? 'Processing...' : 'Add Balance'}
-                            </Button>
-                            <Button
-                                onClick={handleBulkUpdate}
-                                disabled={bulkLoading || !bulkAmount || selectedEmps.length === 0}
-                            >
-                                {bulkLoading ? 'Processing...' : 'Update Balance'}
-                            </Button>
-                            <DialogClose asChild>
-                                <Button variant="outline">Cancel</Button>
-                            </DialogClose>
-                        </DialogFooter>
-                    </DialogContent>
-                </DialogPortal>
-            </Dialog>
 
             {/* ----------------------- Upload Link Modal -------------------- */}
             <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
@@ -737,24 +561,17 @@ const AdminDashboardPage: React.FC = () => {
             </Dialog>
 
             {/* ----------------------- Employee Table ----------------------- */}
-            <Card>
+                        <Card>
                 <CardContent>
                     {loading ? (
-                        <div className="flex justify-center py-12">
-                            <Loader2 className="animate-spin" />
-                        </div>
+                        <div className="flex justify-center py-12"><Loader2 className="animate-spin" /></div>
                     ) : error ? (
                         <p className="text-center text-red-500">{error}</p>
                     ) : filtered.length === 0 ? (
                         <p className="text-center text-gray-500">No employees found.</p>
                     ) : (
                         <div className="overflow-x-auto">
-                            <Table className="w-full min-w-[36rem] table-auto">
-                                <colgroup>
-                                    <col className="w-2/6" />
-                                    <col className="w-2/6" />
-                                    <col className="w-2/6" />
-                                </colgroup>
+                            <Table className="w-full table-auto">
                                 <TableHeader className="bg-gray-100">
                                     <TableRow>
                                         <TH>Name</TH>
@@ -770,63 +587,25 @@ const AdminDashboardPage: React.FC = () => {
                                             <TableCell className="break-all">{emp.email}</TableCell>
                                             <TableCell className="break-all">{emp.balance || 0}</TableCell>
                                             <TableCell className="text-right">
-                                                <div className="flex flex-col space-y-2 items-justify-end">
-                                                    <Button
-                                                        size="sm"
-                                                        className="bg-green-100 text-green-800 hover:bg-green-200"
-                                                        onClick={() => handleViewLinks(emp)}
-                                                    >
-                                                        View Links
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        className="bg-blue-100 text-blue-800 hover:bg-blue-200"
-                                                        onClick={() => handleAddBalance(emp)}
-                                                    >
-                                                        Add Balance
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
-                                                        onClick={() => handleUpdateBalance(emp)}
-                                                    >
-                                                        Update Balance
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        className="bg-purple-100 text-purple-800 hover:bg-purple-200"
-                                                        onClick={() => handleViewHistory(emp)}
-                                                    >
-                                                        View History
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        className="bg-red-100 text-red-800 hover:bg-red-200"
-                                                        onClick={() => handleViewUsers(emp)}
-                                                    >
-                                                        View Users
-                                                    </Button>
-                                                    {!emp.isApproved && (
-                                                        <>
-                                                            <Button
-                                                                size="sm"
-                                                                className="bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
-                                                                onClick={() => handleApprove(emp)}
-                                                            >
-                                                                Approve
-                                                            </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                className="bg-red-100 text-red-800 hover:bg-red-200"
-                                                                onClick={() => handleReject(emp)}
-                                                            >
-                                                                Reject
-                                                            </Button>
-                                                        </>
-                                                    )}
-                                                </div>
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="outline" size="sm" className="p-2">
+                                                            <MoreVertical className="h-4 w-4" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end">
+                                                        <DropdownMenuItem onSelect={() => handleViewLinks(emp)}>View Links</DropdownMenuItem>
+                                                        <DropdownMenuItem onSelect={() => handleAddBalance(emp)}>Add Balance</DropdownMenuItem>
+                                                        <DropdownMenuItem onSelect={() => handleUpdateBalance(emp)}>Update Balance</DropdownMenuItem>
+                                                        <DropdownMenuItem onSelect={() => handleViewHistory(emp)}>View History</DropdownMenuItem>
+                                                        <DropdownMenuItem onSelect={() => handleViewUsers(emp)}>View Users</DropdownMenuItem>
+                                                        {!emp.isApproved && <>
+                                                            <DropdownMenuItem onSelect={() => handleApprove(emp)}>Approve</DropdownMenuItem>
+                                                            <DropdownMenuItem onSelect={() => handleReject(emp)}>Reject</DropdownMenuItem>
+                                                        </>}
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
                                             </TableCell>
-
                                         </TableRow>
                                     ))}
                                 </TableBody>
