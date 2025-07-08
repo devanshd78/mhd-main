@@ -102,7 +102,7 @@ export default function SubmissionsPage() {
                     <TableCell className="px-4 py-2 break-all text-center">{s.upiId}</TableCell>
                     <TableCell className="px-4 py-2 text-center">{s.notes || '-'}</TableCell>
                     <TableCell className="px-4 py-2 text-right whitespace-nowrap">
-                      ₹{s.amount.toFixed(2)}
+                      ₹{s.amount}
                       <br />
                       {format(new Date(s.createdAt), 'PPpp')}
                     </TableCell>
@@ -115,7 +115,7 @@ export default function SubmissionsPage() {
 
           <div className="flex items-center justify-between p-4">
             <span className="font-semibold text-lg">
-              Total: ₹{totalAmount.toFixed(2)}
+              Total: ₹{totalAmount}
             </span>
             <div className="flex gap-2">
               <Button
