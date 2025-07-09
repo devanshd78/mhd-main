@@ -4,13 +4,21 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Home, Clock, Menu, X, CurrencyIcon, LogOut } from "lucide-react";
+import { Home, Clock, Menu, X, CurrencyIcon, LogOut, Lock, Mail, CreditCard } from "lucide-react";
 
-const navItems = [
-  { label: "Dashboard", href: "/admin/dashboard", icon: Home },
-  { label: "Link History", href: "/admin/link-history", icon: Clock },
-  { label: "Bulk Payment", href: "/admin/bulk-payment", icon: CurrencyIcon },
-];
+type NavItem = {
+  label: string;
+  href: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+};
+
+const navItems: NavItem[] = [
+  { label: 'Dashboard', href: '/admin/dashboard', icon: Home },
+  { label: 'Link History', href: '/admin/link-history', icon: Clock },
+  { label: 'Bulk Payment', href: '/admin/bulk-payment', icon: CreditCard },
+  { label: 'Update Password', href: '/admin/update-password', icon: Lock },
+  { label: 'Update Email', href: '/admin/update-email', icon: Mail },
+]
 
 export default function AdminSidebar() {
   const pathname = usePathname();
@@ -41,16 +49,14 @@ export default function AdminSidebar() {
             key={href}
             href={href}
             onClick={onClick}
-            className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              active
+            className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${active
                 ? "bg-green-50 text-green-600"
                 : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-            }`}
+              }`}
           >
             <Icon
-              className={`mr-3 h-5 w-5 transition-colors ${
-                active ? "text-green-600" : "text-gray-400 hover:text-gray-500"
-              }`}
+              className={`mr-3 h-5 w-5 transition-colors ${active ? "text-green-600" : "text-gray-400 hover:text-gray-500"
+                }`}
             />
             {label}
           </Link>
