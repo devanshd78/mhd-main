@@ -278,15 +278,14 @@ export default function LinkEntriesPage() {
             className="bg-white rounded-2xl shadow-lg max-w-2xl w-full p-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-semibold">Analysis — {shortId(analysisForId, 8, 6)}</h2>
+            <pre className="mt-2 bg-gray-50 border rounded p-3 text-xs overflow-x-auto">
+              {analysisData ? JSON.stringify(analysisData, null, 2) : "—"}
+            </pre>
+            <div className="flex items-center justify-end mt-2">
               <Button size="sm" variant="outline" onClick={() => setAnalysisOpen(false)}>
                 Close
               </Button>
             </div>
-            <pre className="mt-2 bg-gray-50 border rounded p-3 text-xs overflow-x-auto">
-              {analysisData ? JSON.stringify(analysisData, null, 2) : "—"}
-            </pre>
           </div>
         </div>
       )}
@@ -422,7 +421,7 @@ export default function LinkEntriesPage() {
                               <span>Liked: <b>{ss.analysis.liked ? 'Yes' : 'No'}</b></span>
                               <span>Comments: <b>{Array.isArray(ss.analysis.comment) ? ss.analysis.comment.length : 0}</b></span>
                               <span>Replies: <b>{Array.isArray(ss.analysis.replies) ? ss.analysis.replies.length : 0}</b></span>
-                              <Button size="sm" variant="outline" onClick={()=>openAnalysis(ss)}>View JSON</Button>
+                              <Button size="sm" variant="outline" onClick={()=>openAnalysis(ss)}>View Details</Button>
                             </div>
                           ) : <span className="text-gray-400">—</span>}
                         </TableCell>

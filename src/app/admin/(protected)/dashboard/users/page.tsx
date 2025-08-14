@@ -107,7 +107,7 @@ export default function AdminUsersPage() {
                                         className="mr-2"
                                         onClick={() => router.push(`/admin/dashboard/users/view?id=${u.userId}`)}
                                     >
-                                        Old Details
+                                        Legacy Details
                                     </Button>
                                     <Button
                                         variant="outline"

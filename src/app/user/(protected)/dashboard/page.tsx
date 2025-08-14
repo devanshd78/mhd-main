@@ -268,131 +268,132 @@ export default function Dashboard() {
     return { ok: missing.length === 0 && errors.length === 0, missing, errors };
   };
 
-const handleEntrySubmit = async (e: FormEvent) => {
-  e.preventDefault();
-  if (!selectedLink || !userProfile) return;
+  const handleEntrySubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedLink || !userProfile) return;
 
-  const { ok, missing, errors } = validateImages();
-  if (!ok) {
-    const lines = [missing.length ? `Missing: ${missing.join(", ")}` : "", ...errors].filter(Boolean);
-    Swal.fire({
-      toast: true,
-      position: "top-end",
-      icon: "warning",
-      title: "Please fix the upload issues",
-      text: lines.join(" | "),
-      showConfirmButton: false,
-      timer: 2200,
-      timerProgressBar: true,
-    });
-    return;
-  }
-
-  const form = new FormData();
-  form.append("userId", userProfile.userId);
-  form.append("name", entryName);
-  form.append("upiId", userUpi);
-  form.append("linkId", selectedLink._id);
-  form.append("type", String(1));
-  form.append("worksUnder", worksUnder);
-  IMAGE_KEYS.forEach((key) => {
-    if (images[key]) form.append(`${key}`, images[key] as File);
-  });
-
-  try {
-    setSubmitting(true);
-
-    // ⬇️ IMPORTANT: use the response shape you shared
-    const res = await api.post<SubmitEntryResponse>("/entry/user", form, {
-      withCredentials: true,
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-
-    const { message, verification: v, entry: en } = res.data;
-
-    // Build a friendly detail view
-    const commentsList = v.comment.slice(0, 3).map((c) => `<li>${escapeHtml(c)}</li>`).join("");
-    const repliesList  = v.replies.slice(0, 3).map((r) => `<li>${escapeHtml(r)}</li>`).join("");
-
-    const html = `
-      <div style="text-align:left">
-        <p><b>Amount:</b> ₹${escapeHtml(String(en.totalAmount))}</p>
-        <p><b>Verified:</b> ${v.verified ? "Yes ✅" : "No ❌"}
-           &nbsp;|&nbsp; <b>Liked:</b> ${v.liked ? "Yes" : "No"}
-           &nbsp;|&nbsp; <b>Handle:</b> ${escapeHtml(v.user_id || "—")}</p>
-        <p><b>Comments (${v.comment.length}):</b></p>
-        <ul style="margin-left:1em">${commentsList || "<li>—</li>"}</ul>
-        <p><b>Replies (${v.replies.length}):</b></p>
-        <ul style="margin-left:1em">${repliesList || "<li>—</li>"}</ul>
-        <p style="margin-top:0.5em"><small>Created at: ${escapeHtml(new Date(en.createdAt).toLocaleString())}</small></p>
-      </div>
-    `;
-
-    // Close the upload modal before showing the summary
-    setModalOpen(false);
-
-    await Swal.fire({
-      icon: "success",
-      title: escapeHtml(message || "User entry submitted"),
-      html,
-      confirmButtonText: "OK",
-      width: 600,
-    });
-
-  } catch (err: any) {
-    const data = err?.response?.data || {};
-    const code = (data.code as string) || undefined;
-    const message = data.message || "Submission failed";
-
-    let extra = "";
-    if (code === "MISSING_IMAGES" && Array.isArray(data.missing)) {
-      extra = `Missing: ${data.missing.join(", ")}`;
-    } else if (code === "INVALID_IMAGE_FILES") {
-      const typeErr = (data.typeErrors || []).map((t: any) => `${t.role} (${t.mimetype})`).join(", ");
-      const sizeErr = (data.sizeErrors || []).map((s: any) => `${s.role} (${Math.round(s.size / 1024 / 1024)}MB)`).join(", ");
-      const parts: string[] = [];
-      if (typeErr) parts.push(`Type issues: ${typeErr}`);
-      if (sizeErr) parts.push(`Too large: ${sizeErr}`);
-      if (data.allowed) parts.push(`Allowed: JPG/PNG/WebP`);
-      if (data.maxBytes) parts.push(`Max: 10MB each`);
-      extra = parts.join(" | ");
-    } else if (code === "NEAR_DUPLICATE") {
-      extra = "These screenshots match a previous upload. Please capture fresh screenshots.";
-    } else if (code === "VERIFICATION_FAILED") {
-      const d = data.details || {};
-      const need = d.needed ? `Need: liked=${d.needed.liked}, comments>=${d.needed.minComments}, replies>=${d.needed.minReplies}` : "";
-      const got = `Detected → liked=${String(d.liked)}, comments=${d.commentCount}, replies=${d.replyCount}`;
-      extra = [need, got].filter(Boolean).join(" | ");
-    } else if (code === "UPI_MISMATCH") {
-      extra = "The UPI ID in your profile must match exactly (case-insensitive).";
-    } else if (code === "INVALID_UPI") {
-      extra = "Please double-check your UPI format.";
-    } else if (
-      code === "ANALYZER_ERROR" ||
-      code === "PHASH_ERROR" ||
-      code === "DUP_CHECK_ERROR" ||
-      code === "SCREENSHOT_PERSIST_ERROR" ||
-      code === "ENTRY_PERSIST_ERROR"
-    ) {
-      extra = "A server error occurred. Please try again.";
+    const { ok, missing, errors } = validateImages();
+    if (!ok) {
+      const lines = [missing.length ? `Missing: ${missing.join(", ")}` : "", ...errors].filter(Boolean);
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "warning",
+        title: "Please fix the upload issues",
+        text: lines.join(" | "),
+        showConfirmButton: false,
+        timer: 2200,
+        timerProgressBar: true,
+      });
+      return;
     }
 
-    Swal.fire({
-      toast: true,
-      position: "top-end",
-      icon: "error",
-      title: message,
-      text: extra,
-      showConfirmButton: false,
-      timer: 2800,
-      timerProgressBar: true,
+    const form = new FormData();
+    form.append("userId", userProfile.userId);
+    form.append("name", entryName);
+    form.append("upiId", userUpi);
+    form.append("linkId", selectedLink._id);
+    form.append("type", String(1));
+    form.append("worksUnder", worksUnder);
+    IMAGE_KEYS.forEach((key) => {
+      if (images[key]) form.append(`${key}`, images[key] as File);
     });
-  } finally {
-    setSubmitting(false);
-    setSelectedLink(null);
-    resetImageState();
-  }
-};
+
+    try {
+      setSubmitting(true);
+
+      // ⬇️ IMPORTANT: use the response shape you shared
+      const res = await api.post<SubmitEntryResponse>("/entry/user", form, {
+        withCredentials: true,
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const { message, verification: v, entry: en } = res.data;
+
+      // Build a friendly detail view
+      const commentsList = v.comment.slice(0, 3).map((c) => `<li>${escapeHtml(c)}</li>`).join("");
+      const repliesList = v.replies.slice(0, 3).map((r) => `<li>${escapeHtml(r)}</li>`).join("");
+
+      const html = `
+  <div style="text-align:left">
+    <p><b>Handle:</b> ${escapeHtml(v.user_id || "—")}</p>
+    <p><b>Liked:</b> ${v.liked ? "Yes ✅" : "No ❌"}</p>
+    <p><b>Comment 1:</b> ${escapeHtml(v.comment[0] || "—")}</p>
+    <p><b>Comment 2:</b> ${escapeHtml(v.comment[1] || "—")}</p>
+    <p><b>Reply 1:</b> ${escapeHtml(v.replies[0] || "—")}</p>
+    <p><b>Reply 2:</b> ${escapeHtml(v.replies[1] || "—")}</p>
+    <p><b>Amount will be paid:</b> ₹${escapeHtml(String(en.totalAmount))}</p>
+    <p><b>Date:</b> ${escapeHtml(new Date(en.createdAt).toLocaleString('en-US', {
+        day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      }))}</p>
+  </div>
+`;
+
+      // Close the upload modal before showing the summary
+      setModalOpen(false);
+
+      await Swal.fire({
+        icon: "success",
+        title: escapeHtml(message || "Verified"),
+        html,
+        confirmButtonText: "OK",
+        width: 600,
+      });
+
+    } catch (err: any) {
+      const data = err?.response?.data || {};
+      const code = (data.code as string) || undefined;
+      const message = data.message || "Submission failed";
+
+      let extra = "";
+      if (code === "MISSING_IMAGES" && Array.isArray(data.missing)) {
+        extra = `Missing: ${data.missing.join(", ")}`;
+      } else if (code === "INVALID_IMAGE_FILES") {
+        const typeErr = (data.typeErrors || []).map((t: any) => `${t.role} (${t.mimetype})`).join(", ");
+        const sizeErr = (data.sizeErrors || []).map((s: any) => `${s.role} (${Math.round(s.size / 1024 / 1024)}MB)`).join(", ");
+        const parts: string[] = [];
+        if (typeErr) parts.push(`Type issues: ${typeErr}`);
+        if (sizeErr) parts.push(`Too large: ${sizeErr}`);
+        if (data.allowed) parts.push(`Allowed: JPG/PNG/WebP`);
+        if (data.maxBytes) parts.push(`Max: 10MB each`);
+        extra = parts.join(" | ");
+      } else if (code === "NEAR_DUPLICATE") {
+        extra = "These screenshots match a previous upload. Please capture fresh screenshots.";
+      } else if (code === "VERIFICATION_FAILED") {
+        const d = data.details || {};
+        const need = d.needed ? `Need: liked=${d.needed.liked}, comments>=${d.needed.minComments}, replies>=${d.needed.minReplies}` : "";
+        const got = `Detected → liked=${String(d.liked)}, comments=${d.commentCount}, replies=${d.replyCount}`;
+        extra = [need, got].filter(Boolean).join(" | ");
+      } else if (code === "UPI_MISMATCH") {
+        extra = "The UPI ID in your profile must match exactly (case-insensitive).";
+      } else if (code === "INVALID_UPI") {
+        extra = "Please double-check your UPI format.";
+      } else if (
+        code === "ANALYZER_ERROR" ||
+        code === "PHASH_ERROR" ||
+        code === "DUP_CHECK_ERROR" ||
+        code === "SCREENSHOT_PERSIST_ERROR" ||
+        code === "ENTRY_PERSIST_ERROR"
+      ) {
+        extra = "A server error occurred. Please try again.";
+      }
+
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "error",
+        title: message,
+        text: extra,
+        showConfirmButton: false,
+        timer: 2800,
+        timerProgressBar: true,
+      });
+    } finally {
+      setSubmitting(false);
+      setSelectedLink(null);
+      resetImageState();
+    }
+  };
 
 
   if (loading) return <div className="flex justify-center items-center h-[60vh] text-sm">Loading...</div>;
@@ -423,21 +424,26 @@ const handleEntrySubmit = async (e: FormEvent) => {
             return (
               <Card
                 key={link._id}
-                className={`group rounded-xl hover:shadow-lg transition-shadow bg-white border shadow-sm ${
-                  link.isLatest ? "border-green-500" : "border-gray-200"
-                }`}
+                className={`group rounded-xl hover:shadow-lg transition-shadow bg-white border shadow-sm ${link.isLatest ? "border-green-500" : "border-gray-200"
+                  }`}
               >
                 <CardHeader className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <CardTitle className="text-base sm:text-lg font-medium line-clamp-2 text-gray-800">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <CardTitle className="text-base sm:text-lg font-medium text-gray-800 flex-1 min-w-0 break-words">
                       {link.title}
                     </CardTitle>
                     {link.isCompleted === 1 ? (
-                      <Badge variant="outline" className="border-green-500 text-green-600 bg-transparent">
+                      <Badge
+                        variant="outline"
+                        className="flex-shrink-0 border-green-500 text-green-600 bg-transparent"
+                      >
                         Completed
                       </Badge>
                     ) : link.isLatest ? (
-                      <Badge variant="outline" className="border-green-500 text-green-600 bg-transparent">
+                      <Badge
+                        variant="outline"
+                        className="flex-shrink-0 border-green-500 text-green-600 bg-transparent"
+                      >
                         Latest
                       </Badge>
                     ) : null}
@@ -481,6 +487,7 @@ const handleEntrySubmit = async (e: FormEvent) => {
                   )}
                 </CardFooter>
               </Card>
+
             );
           })}
         </section>
@@ -545,12 +552,12 @@ const handleEntrySubmit = async (e: FormEvent) => {
                           {key === "like"
                             ? "Like"
                             : key === "comment1"
-                            ? "Comment 1"
-                            : key === "comment2"
-                            ? "Comment 2"
-                            : key === "reply1"
-                            ? "Reply 1"
-                            : "Reply 2"}
+                              ? "Comment 1"
+                              : key === "comment2"
+                                ? "Comment 2"
+                                : key === "reply1"
+                                  ? "Reply 1"
+                                  : "Reply 2"}
                         </span>
                         {images[key] && (
                           <button
