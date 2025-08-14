@@ -104,10 +104,18 @@ export default function AdminUsersPage() {
                                 <TableCell className="px-4 py-2">
                                     <Button
                                         variant="outline"
+                                        className="mr-2"
                                         onClick={() => router.push(`/admin/dashboard/users/view?id=${u.userId}`)}
                                     >
-                                        View Details
+                                        Old Details
                                     </Button>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => router.push(`/admin/dashboard/users/view-screenshot?id=${u.userId}`)}
+                                    >
+                                        New Details
+                                    </Button>
+
                                 </TableCell>
                             </TableRow>
                         ))}

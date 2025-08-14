@@ -59,15 +59,12 @@ interface LinkEntry {
   target: number
   amount: number
   expireIn: number
-  userEntries?: any[]
+  userEntries?: UserEntry[]
 }
 
-interface Submission {
-  name: string
-  upiId: string
-  amount: number
-  notes: string
-  createdAt: string
+interface UserEntry {
+  screenshotId?: string
+  entryId?: string
 }
 
 /** ActionLink: accessible button with icon + label */
@@ -338,6 +335,19 @@ const AdminDashboardPage: React.FC = () => {
     }
   }
 
+  const buildEntriesHref = (link: LinkEntry, empId: string) => {
+    const base = `/admin/dashboard/${Array.isArray(link.userEntries) && link.userEntries.length > 0 ? 'user-view' : 'view'
+      }?linkid=${link._id}&empid=${empId}`
+
+    // pick the first entry that has a screenshotId
+    const ssId = Array.isArray(link.userEntries)
+      ? link.userEntries.find(u => !!u?.screenshotId)?.screenshotId
+      : undefined
+
+    return ssId ? `${base}&ssId=${encodeURIComponent(ssId)}` : base
+  }
+
+
   /* Navigation handlers */
   const handleViewHistory = (emp: Employee) => {
     router.push(`/admin/dashboard/history?id=${emp.employeeId}&name=${emp.name}`)
@@ -571,18 +581,11 @@ const AdminDashboardPage: React.FC = () => {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() =>
-                                  router.push(
-                                    `/admin/dashboard/${
-                                      Array.isArray(link.userEntries) && link.userEntries.length > 0
-                                        ? 'user-view'
-                                        : 'view'
-                                    }?linkid=${link._id}&empid=${selectedEmp.employeeId}`
-                                  )
-                                }
+                                onClick={() => router.push(buildEntriesHref(link, selectedEmp.employeeId))}
                               >
                                 View Entries
                               </Button>
+
                             </TableCell>
                           </TableRow>
                         ))}
