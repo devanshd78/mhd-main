@@ -334,7 +334,7 @@ export default function Dashboard() {
 
       await Swal.fire({
         icon: "success",
-        title: escapeHtml(message || "Verified"),
+        title: escapeHtml("Verified"),
         html,
         confirmButtonText: "OK",
         width: 600,
