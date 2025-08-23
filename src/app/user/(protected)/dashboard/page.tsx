@@ -342,10 +342,11 @@ export default function Dashboard() {
 
     } catch (err: any) {
       const data = err?.response?.data || {};
-      const code = (data.code as string) || undefined;
+      const code = data.code as string | undefined;
       const message = data.message || "Submission failed";
 
       let extra = "";
+
       if (code === "MISSING_IMAGES" && Array.isArray(data.missing)) {
         extra = `Missing: ${data.missing.join(", ")}`;
       } else if (code === "INVALID_IMAGE_FILES") {
@@ -376,6 +377,9 @@ export default function Dashboard() {
         code === "ENTRY_PERSIST_ERROR"
       ) {
         extra = "A server error occurred. Please try again.";
+      } else {
+        // 🔥 Fallback: show the unknown code/message
+        extra = code ? `Error Code: ${code}` : "";
       }
 
       Swal.fire({
