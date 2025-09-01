@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState, ChangeEvent, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/axios";
+import axios from "axios";
 
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,8 +48,8 @@ interface UserProfile {
 interface SubmitVerification {
   liked: boolean;
   user_id: string | null;
-  comment: string[];
-  replies: string[];
+  comment: string[] | null;  // may be null from backend
+  replies: string[] | null;  // may be null from backend
   verified: boolean;
 }
 
@@ -79,12 +80,155 @@ interface SubmitEntryResponse {
 const escapeHtml = (s: string) =>
   String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-
 type ImageKey = "like" | "comment1" | "comment2" | "reply1" | "reply2";
 const IMAGE_KEYS: ImageKey[] = ["like", "comment1", "comment2", "reply1", "reply2"];
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+
+// ───────────────────────── helpers for error handling ─────────────────────────
+const formatMB = (bytes?: number) =>
+  typeof bytes === "number" && isFinite(bytes) ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : "";
+
+const isAxiosErr = (e: unknown): e is import("axios").AxiosError<any> => axios.isAxiosError(e);
+
+const buildErrorToast = (err: unknown) => {
+  let icon: "error" | "warning" | "info" = "error";
+  let title = "Submission failed";
+  let text = "Please try again.";
+
+  // offline
+  // @ts-ignore
+  if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
+    return { icon: "error" as const, title: "You're offline", text: "Reconnect and try again." };
+  }
+  // canceled upload
+  // @ts-ignore
+  if ((err as any)?.code === "ERR_CANCELED") {
+    return { icon: "info" as const, title: "Upload canceled", text: "" };
+  }
+
+  if (!isAxiosErr(err)) return { icon, title, text };
+
+  const status = err.response?.status;
+  const data = err.response?.data ?? {};
+  const code: string | undefined = data.code;
+  const serverMsg: string | undefined = data.message;
+
+  if (serverMsg) title = String(serverMsg);
+
+  switch (code) {
+    case "VALIDATION_ERROR":
+      text = "userId, linkId, name, worksUnder, upiId are required.";
+      icon = "warning";
+      break;
+    case "INVALID_OBJECT_ID":
+      text = "The provided linkId is invalid.";
+      icon = "warning";
+      break;
+    case "LINK_NOT_FOUND":
+      text = "The specified link was not found.";
+      icon = "warning";
+      break;
+    case "USER_NOT_FOUND":
+      text = "User not found.";
+      icon = "warning";
+      break;
+    case "MISSING_IMAGES": {
+      const missing = Array.isArray(data.missing) ? data.missing.join(", ") : "";
+      text = missing ? `Missing: ${missing}` : "Please upload all 5 screenshots.";
+      icon = "warning";
+      break;
+    }
+    case "INVALID_IMAGE_FILES": {
+      const typeErr = (data.typeErrors || [])
+        .map((t: any) => `${t.role} (${t.mimetype || "?"})`)
+        .join(", ");
+      const sizeErr = (data.sizeErrors || [])
+        .map((s: any) => `${s.role} (${formatMB(s.size)})`)
+        .join(", ");
+      const parts: string[] = [];
+      if (typeErr) parts.push(`Type issues: ${typeErr}`);
+      if (sizeErr) parts.push(`Too large: ${sizeErr}`);
+      if (data.allowed) parts.push(`Allowed: JPG/PNG/WebP`);
+      if (data.maxBytes) parts.push(`Max: ${formatMB(data.maxBytes)} each`);
+      text = parts.join(" | ") || "Some files were invalid.";
+      icon = "warning";
+      break;
+    }
+    case "NEAR_DUPLICATE":
+      text = "These screenshots match a previous upload. Please capture fresh screenshots.";
+      icon = "warning";
+      break;
+    case "DUPLICATE_BUNDLE_SIG":
+      text = "A matching screenshot bundle already exists for this link (perceptual match).";
+      icon = "warning";
+      break;
+    case "DUPLICATE_BUNDLE_SHA":
+      text = "This exact set of image files was already submitted for this link.";
+      icon = "warning";
+      break;
+    case "HANDLE_ALREADY_VERIFIED":
+      text = "This handle has already been verified for this video.";
+      icon = "warning";
+      break;
+    case "VERIFICATION_FAILED": {
+      const d = data.details || {};
+      const need = d.needed
+        ? `Need: liked=${String(d.needed.liked)}, comments≥${d.needed.minComments}, replies≥${d.needed.minReplies}`
+        : "";
+      const got = `Detected → liked=${String(d.liked)}, comments=${d.commentCount}, replies=${d.replyCount}`;
+      text = [need, got].filter(Boolean).join(" | ") || "Could not verify the screenshots.";
+      icon = "warning";
+      break;
+    }
+    case "UPI_MISMATCH":
+      text = "The UPI ID in your profile must match exactly (case-insensitive).";
+      icon = "warning";
+      break;
+    case "INVALID_UPI":
+      text = "Please double-check your UPI format.";
+      icon = "warning";
+      break;
+    case "ANALYZER_ERROR":
+    case "PHASH_ERROR":
+    case "DUP_CHECK_ERROR":
+    case "SCREENSHOT_PERSIST_ERROR":
+    case "ENTRY_PERSIST_ERROR":
+      text = "A server error occurred. Please try again.";
+      icon = "error";
+      break;
+    default: {
+      // status-based fallbacks
+      if (status === 413) {
+        title = "Files too large";
+        text = "One or more images exceed the size limit. Please compress and retry.";
+        icon = "warning";
+      } else if (status === 409) {
+        title = "Duplicate submission";
+        text = "A matching submission already exists for this link.";
+        icon = "warning";
+      } else if (status === 422) {
+        title = "Verification failed";
+        text = "Could not verify the screenshots. Please try clearer images.";
+        icon = "warning";
+      } else if (status === 429) {
+        title = "Too many attempts";
+        text = "Please wait a moment and try again.";
+        icon = "warning";
+      } else if (status && status >= 500) {
+        title = "Server unavailable";
+        text = "Please try again in a minute.";
+        icon = "error";
+      } else {
+        text = code ? `Error Code: ${code}` : (serverMsg || "Unexpected error.");
+        icon = "error";
+      }
+    }
+  }
+
+  return { icon, title, text };
+};
 
 export default function Dashboard() {
   const router = useRouter();
@@ -302,32 +446,30 @@ export default function Dashboard() {
     try {
       setSubmitting(true);
 
-      // ⬇️ IMPORTANT: use the response shape you shared
       const res = await api.post<SubmitEntryResponse>("/entry/user", form, {
         withCredentials: true,
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      const { message, verification: v, entry: en } = res.data;
+      const { verification: v, entry: en } = res.data;
 
-      // Build a friendly detail view
-      const commentsList = v.comment.slice(0, 3).map((c) => `<li>${escapeHtml(c)}</li>`).join("");
-      const repliesList = v.replies.slice(0, 3).map((r) => `<li>${escapeHtml(r)}</li>`).join("");
+      const comments = Array.isArray(v.comment) ? v.comment : [];
+      const replies  = Array.isArray(v.replies) ? v.replies : [];
 
       const html = `
-  <div style="text-align:left">
-    <p><b>Handle:</b> ${escapeHtml(v.user_id || "—")}</p>
-    <p><b>Liked:</b> ${v.liked ? "Yes ✅" : "No ❌"}</p>
-    <p><b>Comment 1:</b> ${escapeHtml(v.comment[0] || "—")}</p>
-    <p><b>Comment 2:</b> ${escapeHtml(v.comment[1] || "—")}</p>
-    <p><b>Reply 1:</b> ${escapeHtml(v.replies[0] || "—")}</p>
-    <p><b>Reply 2:</b> ${escapeHtml(v.replies[1] || "—")}</p>
-    <p><b>Amount will be paid:</b> ₹${escapeHtml(String(en.totalAmount))}</p>
-    <p><b>Date:</b> ${escapeHtml(new Date(en.createdAt).toLocaleString('en-US', {
-        day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
-      }))}</p>
-  </div>
-`;
+        <div style="text-align:left">
+          <p><b>Handle:</b> ${escapeHtml(v.user_id || "—")}</p>
+          <p><b>Liked:</b> ${v.liked ? "Yes ✅" : "No ❌"}</p>
+          <p><b>Comment 1:</b> ${escapeHtml(comments[0] || "—")}</p>
+          <p><b>Comment 2:</b> ${escapeHtml(comments[1] || "—")}</p>
+          <p><b>Reply 1:</b> ${escapeHtml(replies[0] || "—")}</p>
+          <p><b>Reply 2:</b> ${escapeHtml(replies[1] || "—")}</p>
+          <p><b>Amount will be paid:</b> ₹${escapeHtml(String(en.totalAmount))}</p>
+          <p><b>Date:</b> ${escapeHtml(new Date(en.createdAt).toLocaleString('en-US', {
+            day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+          }))}</p>
+        </div>
+      `;
 
       // Close the upload modal before showing the summary
       setModalOpen(false);
@@ -340,65 +482,26 @@ export default function Dashboard() {
         width: 600,
       });
 
-    } catch (err: any) {
-      const data = err?.response?.data || {};
-      const code = data.code as string | undefined;
-      const message = data.message || "Submission failed";
-
-      let extra = "";
-
-      if (code === "MISSING_IMAGES" && Array.isArray(data.missing)) {
-        extra = `Missing: ${data.missing.join(", ")}`;
-      } else if (code === "INVALID_IMAGE_FILES") {
-        const typeErr = (data.typeErrors || []).map((t: any) => `${t.role} (${t.mimetype})`).join(", ");
-        const sizeErr = (data.sizeErrors || []).map((s: any) => `${s.role} (${Math.round(s.size / 1024 / 1024)}MB)`).join(", ");
-        const parts: string[] = [];
-        if (typeErr) parts.push(`Type issues: ${typeErr}`);
-        if (sizeErr) parts.push(`Too large: ${sizeErr}`);
-        if (data.allowed) parts.push(`Allowed: JPG/PNG/WebP`);
-        if (data.maxBytes) parts.push(`Max: 10MB each`);
-        extra = parts.join(" | ");
-      } else if (code === "NEAR_DUPLICATE") {
-        extra = "These screenshots match a previous upload. Please capture fresh screenshots.";
-      } else if (code === "VERIFICATION_FAILED") {
-        const d = data.details || {};
-        const need = d.needed ? `Need: liked=${d.needed.liked}, comments>=${d.needed.minComments}, replies>=${d.needed.minReplies}` : "";
-        const got = `Detected → liked=${String(d.liked)}, comments=${d.commentCount}, replies=${d.replyCount}`;
-        extra = [need, got].filter(Boolean).join(" | ");
-      } else if (code === "UPI_MISMATCH") {
-        extra = "The UPI ID in your profile must match exactly (case-insensitive).";
-      } else if (code === "INVALID_UPI") {
-        extra = "Please double-check your UPI format.";
-      } else if (
-        code === "ANALYZER_ERROR" ||
-        code === "PHASH_ERROR" ||
-        code === "DUP_CHECK_ERROR" ||
-        code === "SCREENSHOT_PERSIST_ERROR" ||
-        code === "ENTRY_PERSIST_ERROR"
-      ) {
-        extra = "A server error occurred. Please try again.";
-      } else {
-        // 🔥 Fallback: show the unknown code/message
-        extra = code ? `Error Code: ${code}` : "";
-      }
-
+      // ✅ Clear state only after a successful submit
+      setSelectedLink(null);
+      resetImageState();
+      setEntryName("");
+    } catch (err) {
+      const { icon, title, text } = buildErrorToast(err);
       Swal.fire({
         toast: true,
         position: "top-end",
-        icon: "error",
-        title: message,
-        text: extra,
+        icon,
+        title,
+        text,
         showConfirmButton: false,
-        timer: 2800,
+        timer: 3200,
         timerProgressBar: true,
       });
     } finally {
       setSubmitting(false);
-      setSelectedLink(null);
-      resetImageState();
     }
   };
-
 
   if (loading) return <div className="flex justify-center items-center h-[60vh] text-sm">Loading...</div>;
   if (error) return <div className="text-center text-red-600 py-10 px-4">{error}</div>;
@@ -428,8 +531,9 @@ export default function Dashboard() {
             return (
               <Card
                 key={link._id}
-                className={`group rounded-xl hover:shadow-lg transition-shadow bg-white border shadow-sm ${link.isLatest ? "border-green-500" : "border-gray-200"
-                  }`}
+                className={`group rounded-xl hover:shadow-lg transition-shadow bg-white border shadow-sm ${
+                  link.isLatest ? "border-green-500" : "border-gray-200"
+                }`}
               >
                 <CardHeader className="p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -491,7 +595,6 @@ export default function Dashboard() {
                   )}
                 </CardFooter>
               </Card>
-
             );
           })}
         </section>
