@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-export default function EmployeeLayout({
+export default function UserLayout({
   children,
 }: {
   children: React.ReactNode
