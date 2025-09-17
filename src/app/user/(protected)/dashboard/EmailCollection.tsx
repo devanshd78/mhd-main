@@ -15,33 +15,49 @@ import {
   X,
   ImageIcon,
   CheckCircle2,
+  ExternalLink,
 } from "lucide-react";
-
-// NEW: SweetAlert2
 import Swal from "sweetalert2";
-
-// Small reusable toast helper
-const toast = Swal.mixin({
-  toast: true,
-  position: "top-end",
-  showConfirmButton: false,
-  timer: 2500,
-  timerProgressBar: true,
-  didOpen: (t) => {
-    t.addEventListener("mouseenter", Swal.stopTimer);
-    t.addEventListener("mouseleave", Swal.resumeTimer);
-  },
-});
+import { post } from "@/lib/axios";
+import type { AxiosError } from "axios";
 
 // -----------------------------------------------------------------------------
-// Types
+// Env + Backend contract
 // -----------------------------------------------------------------------------
-type Platform = "youtube" | "instagram" | "tiktok";
+const EMAIL_BATCH_PATH = process.env.NEXT_PUBLIC_EMAIL_BATCH_PATH || "/email/user/extract";
+// Field name used by multer on the backend (upload.array('<FIELD>'))
+const MULTIPART_FIELD = process.env.NEXT_PUBLIC_EMAIL_BATCH_FIELD || "files";
+
+// -----------------------------------------------------------------------------
+// Types (aligned with provided sample payload)
+// -----------------------------------------------------------------------------
+export type Platform = "youtube" | "instagram" | "tiktok";
+
+export type EmailBatchResult = {
+  error?: string;
+  has_captcha?: boolean;
+  platform?: string;
+  more_info?: { emails?: string[]; handles?: string[]; YouTube?: string | null };
+  normalized?: { email?: string | null; handle?: string | null };
+  db?: { saved?: boolean; id?: string };
+  details?: {
+    outcome?: "saved" | "duplicate" | "error";
+    message?: string;
+    id?: string; // the new record id (if saved) OR request id
+    existingUserId?: string; // if duplicate, which user already has it
+  };
+};
+
+export interface EmailBatchResponse {
+  results: EmailBatchResult[];
+  status?: string;
+  message?: string;
+}
 
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 const MIN_FILES = 1;
 const MAX_FILES = 5;
@@ -77,6 +93,74 @@ const formatMB = (bytes?: number) =>
   typeof bytes === "number" && isFinite(bytes) ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : "";
 
 // -----------------------------------------------------------------------------
+// SweetAlert Toast helper
+// -----------------------------------------------------------------------------
+const toast = Swal.mixin({
+  toast: true,
+  position: "top-end",
+  showConfirmButton: false,
+  timer: 2500,
+  timerProgressBar: true,
+  didOpen: (t) => {
+    t.addEventListener("mouseenter", Swal.stopTimer);
+    t.addEventListener("mouseleave", Swal.resumeTimer);
+  },
+});
+
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
+function safeUrl(url?: string | null) {
+  if (!url) return undefined;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `https://${url}`;
+}
+
+function labelForResult(r: EmailBatchResult) {
+  if (r.db?.saved || r.details?.outcome === "saved") return { text: "Saved", tone: "success" as const };
+  if (r.details?.outcome === "duplicate" || /already present/i.test(r.error || ""))
+    return { text: "Duplicate", tone: "secondary" as const };
+  if (r.has_captcha) return { text: "CAPTCHA Skipped", tone: "warning" as const };
+  if (r.error) return { text: "Error", tone: "destructive" as const };
+  return { text: "Processed", tone: "default" as const };
+}
+
+function toneToBadgeVariant(tone: "success" | "secondary" | "warning" | "destructive" | "default") {
+  switch (tone) {
+    case "success":
+      return "default"; // use default badge but we'll color text via utility
+    case "secondary":
+      return "secondary";
+    case "warning":
+      return "outline";
+    case "destructive":
+      return "destructive";
+    default:
+      return "outline";
+  }
+}
+
+function pickEmail(r: EmailBatchResult) {
+  return r.normalized?.email || r.more_info?.emails?.[0] || "";
+}
+
+function pickHandle(r: EmailBatchResult) {
+  return r.normalized?.handle || r.more_info?.handles?.[0] || "";
+}
+
+// Summarize counts for a payload
+function summarize(results: EmailBatchResult[]) {
+  let saved = 0, duplicates = 0, captcha = 0, failed = 0;
+  for (const r of results) {
+    if (r.db?.saved || r.details?.outcome === "saved") saved += 1;
+    else if (r.details?.outcome === "duplicate" || /already present/i.test(r.error || "")) duplicates += 1;
+    else if (r.has_captcha) captcha += 1;
+    else if (r.error) failed += 1;
+  }
+  return { saved, duplicates, captcha, failed, total: results.length };
+}
+
+// -----------------------------------------------------------------------------
 // Platform Upload Component
 // -----------------------------------------------------------------------------
 function PlatformUpload({
@@ -86,26 +170,25 @@ function PlatformUpload({
 }: {
   platform: Platform;
   disabled?: boolean;
-  onSubmit?: (files: File[]) => Promise<void> | void;
+  // Returns the backend payload for rendering a detailed summary
+  onSubmit?: (platform: Platform, files: File[]) => Promise<EmailBatchResponse>;
 }) {
   const meta = PLATFORM_META[platform];
 
   const [files, setFiles] = useState<File[]>([]);
-  const [, setErrors] = useState<string[]>([]); // not rendered; we use toasts instead
   const [confirmAccurate, setConfirmAccurate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
+  const [results, setResults] = useState<EmailBatchResult[] | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+
   const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
 
-  useEffect(() => {
-    return () => {
-      previews.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [previews]);
+  useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
 
   const validateFile = (file: File): string | null => {
-    if (!ALLOWED_TYPES.includes(file.type)) return "Unsupported file type";
+    if (!ALLOWED_TYPES.includes(file.type as any)) return "Unsupported file type";
     if (file.size > MAX_SIZE) return "File too large (>10MB)";
     return null;
   };
@@ -121,7 +204,6 @@ function PlatformUpload({
       return;
     }
 
-    // Enforce remaining capacity
     const slice = incoming.slice(0, remaining);
     if (incoming.length > slice.length) {
       toast.fire({ icon: "info", title: `You can add only ${remaining} more file${remaining === 1 ? "" : "s"}` });
@@ -132,28 +214,22 @@ function PlatformUpload({
 
     slice.forEach((file) => {
       const err = validateFile(file);
-      if (err) {
-        rejectedCount += 1;
-      } else {
-        accepted.push(file);
-      }
+      if (err) rejectedCount += 1; else accepted.push(file);
     });
 
-    if (rejectedCount > 0) {
-      toast.fire({ icon: "error", title: `${rejectedCount} file${rejectedCount === 1 ? "" : "s"} rejected (type/size)` });
-    }
+    if (rejectedCount > 0) toast.fire({ icon: "error", title: `${rejectedCount} file${rejectedCount === 1 ? "" : "s"} rejected (type/size)` });
 
     if (accepted.length > 0) {
       setFiles((prev) => [...prev, ...accepted]);
-      setErrors([]);
+      setResults(null);
+      setLastError(null);
       toast.fire({ icon: "success", title: `Added ${accepted.length} file${accepted.length === 1 ? "" : "s"}` });
     }
   };
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) addFiles(e.target.files);
-    // Reset to allow re-selecting same file
-    e.target.value = "";
+    e.target.value = ""; // allow re-selecting same file
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
@@ -184,40 +260,64 @@ function PlatformUpload({
 
   const resetAll = () => {
     setFiles([]);
-    setErrors([]);
+    setResults(null);
+    setLastError(null);
     setConfirmAccurate(false);
     toast.fire({ icon: "info", title: "Cleared all files" });
   };
 
+  const isValid = files.length >= MIN_FILES && files.length <= MAX_FILES && confirmAccurate;
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (files.length < MIN_FILES) {
-      toast.fire({ icon: "warning", title: `Add at least ${MIN_FILES} screenshot${MIN_FILES === 1 ? "" : "s"}` });
-      return;
-    }
-    if (!confirmAccurate) {
-      toast.fire({ icon: "warning", title: "Please confirm authenticity" });
+    if (!isValid) {
+      toast.fire({ icon: "info", title: `Please add ${MIN_FILES}-${MAX_FILES} files and confirm authenticity.` });
       return;
     }
 
+    if (!onSubmit) return;
+
+    setSubmitting(true);
+    setLastError(null);
+
     try {
-      setSubmitting(true);
-      // Simulated API call — replace with your real upload
-      await new Promise((r) => setTimeout(r, 1200));
-      onSubmit?.(files);
-      toast.fire({
-        icon: "success",
-        title: `Submitted ${files.length} screenshot${files.length === 1 ? "" : "s"} for ${meta.title.split(" ")[0]}`,
+      const payload = await onSubmit(platform, files);
+      const results = Array.isArray(payload?.results) ? payload!.results : [];
+
+      if (!results.length) {
+        const msg = payload?.message || "No results returned";
+        setLastError(msg);
+        toast.fire({ icon: "warning", title: msg });
+        return;
+      }
+
+      setResults(results);
+
+      const { saved, duplicates, captcha, failed, total } = summarize(results);
+
+      // Friendly modal summary
+      const lines: string[] = [];
+      if (saved) lines.push(`✅ Saved: <b>${saved}</b>`);
+      if (duplicates) lines.push(`↩️ Duplicates: <b>${duplicates}</b>`);
+      if (captcha) lines.push(`🧩 CAPTCHA Skipped: <b>${captcha}</b>`);
+      if (failed) lines.push(`⚠️ Failed: <b>${failed}</b>`);
+
+      await Swal.fire({
+        icon: saved > 0 && failed === 0 ? "success" : duplicates === total ? "info" : failed ? "warning" : "question",
+        title: `Processed ${total} screenshot${total === 1 ? "" : "s"}`,
+        html: `<div class="text-left text-sm space-y-1">${lines.join("<br/>")}</div>`,
+        confirmButtonText: "OK",
       });
-      resetAll();
-    } catch (err) {
-      toast.fire({ icon: "error", title: "Upload failed. Please try again." });
+    } catch (err: any) {
+      const ax = err as AxiosError<any>;
+      const serverMsg = (ax?.response?.data as any)?.message;
+      const msg = serverMsg || ax?.message || "Upload failed";
+      setLastError(msg);
+      toast.fire({ icon: "error", title: msg });
     } finally {
       setSubmitting(false);
     }
   };
-
-  const isValid = files.length >= MIN_FILES && files.length <= MAX_FILES && confirmAccurate;
 
   return (
     <Card className={`rounded-3xl shadow-lg border-2 ${meta.bgColor} transition-all duration-300`}>
@@ -249,7 +349,7 @@ function PlatformUpload({
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
-                onClick={() => !disabled && !submitting && document.getElementById("file-input")?.click()}
+                onClick={() => !disabled && !submitting && document.getElementById(`file-input-${platform}`)?.click()}
               >
                 <div className="text-center">
                   <div className="mx-auto mb-4 p-4 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white w-fit">
@@ -267,7 +367,7 @@ function PlatformUpload({
                 </div>
 
                 <input
-                  id="file-input"
+                  id={`file-input-${platform}`}
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   multiple
@@ -299,6 +399,7 @@ function PlatformUpload({
                     {files.map((file, index) => (
                       <div key={file.name + index} className="relative group bg-white rounded-xl border shadow-sm overflow-hidden">
                         <div className="aspect-video relative">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={previews[index]} alt={`Screenshot ${index + 1}`} className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                             <Button
@@ -313,13 +414,91 @@ function PlatformUpload({
                           </div>
                         </div>
                         <div className="p-3">
-                          <p className="text-sm font-medium truncate">{file.name}</p>
+                          <p className="text-sm font-medium truncate" title={file.name}>{file.name}</p>
                           <p className="text-xs text-gray-500">{formatMB(file.size)}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/* Results */}
+              {results && (
+                <div className="space-y-4">
+                  <h4 className="text-lg font-semibold">Results</h4>
+
+                  {/* Summary strip */}
+                  {(() => {
+                    const { saved, duplicates, captcha, failed, total } = summarize(results);
+                    return (
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">✅ Saved: <b>{saved}</b></div>
+                        <div className="bg-gray-50 border rounded-lg p-3 text-sm">↩️ Duplicates: <b>{duplicates}</b></div>
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm">🧩 CAPTCHA: <b>{captcha}</b></div>
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">⚠️ Failed: <b>{failed}</b></div>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm col-span-2 sm:col-span-1">📄 Total: <b>{total}</b></div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {results.map((r, i) => {
+                      const lbl = labelForResult(r);
+                      const badgeVariant = toneToBadgeVariant(lbl.tone);
+                      const email = pickEmail(r);
+                      const handle = pickHandle(r);
+                      const yt = safeUrl(r.more_info?.YouTube || undefined);
+                      const details = r.details;
+
+                      return (
+                        <div key={`res-${i}`} className="rounded-xl border bg-white p-4 shadow-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={badgeVariant}>{lbl.text}</Badge>
+                              {details?.outcome === "duplicate" && details?.existingUserId && (
+                                <span className="text-xs text-gray-500">existingUserId: {details.existingUserId}</span>
+                              )}
+                            </div>
+                            {yt && (
+                              <a href={yt} target="_blank" rel="noreferrer" className="inline-flex items-center text-xs text-blue-700 hover:underline">
+                                View channel <ExternalLink className="h-3 w-3 ml-1" />
+                              </a>
+                            )}
+                          </div>
+
+                          <div className="mt-3 space-y-1 text-sm">
+                            {email && (
+                              <div>
+                                <span className="text-gray-500">Email: </span>
+                                <span className="font-medium">{email}</span>
+                              </div>
+                            )}
+                            {handle && (
+                              <div>
+                                <span className="text-gray-500">Handle: </span>
+                                <span className="font-medium">{handle}</span>
+                              </div>
+                            )}
+                            {r.platform && (
+                              <div className="text-xs text-gray-500">Platform: {r.platform}</div>
+                            )}
+                            {r.error && (
+                              <div className="text-xs text-red-600">{r.error}</div>
+                            )}
+                            {details?.message && !r.error && (
+                              <div className="text-xs text-gray-600">{details.message}</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {lastError && (
+                <div className="text-sm text-red-600">{lastError}</div>
               )}
             </section>
 
@@ -372,41 +551,50 @@ function PlatformUpload({
               </Card>
 
               {/* Submit Button */}
-              <Button
-                type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
-                disabled={disabled || submitting || !isValid}
-              >
-                {submitting ? (
-                  <>
-                    <Upload className="mr-2 h-4 w-4 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="mr-2 h-4 w-4" />
-                    Submit Screenshots ({files.length})
-                  </>
-                )}
-              </Button>
+              <div className="space-y-2">
+                <Button
+                  type="submit"
+                  className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-60"
+                  disabled={disabled || submitting || !isValid}
+                >
+                  {submitting ? (
+                    <>
+                      <Upload className="mr-2 h-4 w-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Submit Screenshots ({files.length || 0})
+                    </>
+                  )}
+                </Button>
 
-              {/* Progress */}
-              {files.length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs text-gray-600">
-                    <span>Progress</span>
-                    <span>
-                      {files.length}/{MAX_FILES} files
-                    </span>
+                {/* Progress */}
+                {files.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs text-gray-600">
+                      <span>Progress</span>
+                      <span>
+                        {files.length}/{MAX_FILES} files
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-gradient-to-r from-blue-600 to-purple-600 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${(files.length / MAX_FILES) * 100}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-gradient-to-r from-blue-600 to-purple-600 h-2 rounded-full transition-all duration-500"
-                      style={{ width: `${(files.length / MAX_FILES) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              )}
+                )}
+
+                {/* Reset CTA after results */}
+                {results && (
+                  <Button type="button" variant="outline" className="w-full" onClick={resetAll} disabled={submitting}>
+                    Start a new upload
+                  </Button>
+                )}
+              </div>
             </aside>
           </div>
         </CardContent>
@@ -416,14 +604,32 @@ function PlatformUpload({
 }
 
 // -----------------------------------------------------------------------------
-// Main Page Component
+// Main Page Component: single source of truth for API integration
 // -----------------------------------------------------------------------------
 export default function EmailProofPage() {
   const [active, setActive] = useState<Platform>("youtube");
 
-  const handleSubmit = (platform: Platform) => (files: File[]) => {
-    // Your API integration here
-    console.log(`Submitting ${platform} screenshots:`, files);
+  const handleSubmit = (platform: Platform, files: File[]): Promise<EmailBatchResponse> => {
+    // 1) Read userId from localStorage (probe common keys)
+    const idKeys = ["userId", "UserId", "userid", "uid", "UID"] as const;
+    let userId = "";
+    if (typeof window !== "undefined") {
+      for (const k of idKeys) {
+        const v = localStorage.getItem(k);
+        if (v) { userId = v; break; }
+      }
+    }
+    if (!userId) return Promise.reject(new Error("No userId found in localStorage. Please log in first."));
+
+    // 2) Build multipart form data
+    const fd = new FormData();
+    files.forEach((f) => fd.append(MULTIPART_FIELD, f)); // match your multer field name
+    fd.append("platform", platform);
+    fd.append("userId", userId);
+
+    // 3) POST to backend with axios wrapper
+    return post<EmailBatchResponse>(EMAIL_BATCH_PATH, fd, { headers: { "Content-Type": "multipart/form-data" } })
+      .then(({ data }) => data);
   };
 
   return (
@@ -473,13 +679,13 @@ export default function EmailProofPage() {
           </div>
 
           <TabsContent value="youtube">
-            <PlatformUpload platform="youtube" onSubmit={handleSubmit("youtube")} />
+            <PlatformUpload platform="youtube" onSubmit={handleSubmit} />
           </TabsContent>
           <TabsContent value="instagram">
-            <PlatformUpload platform="instagram" onSubmit={handleSubmit("instagram")} />
+            <PlatformUpload platform="instagram" onSubmit={handleSubmit} />
           </TabsContent>
           <TabsContent value="tiktok">
-            <PlatformUpload platform="tiktok" onSubmit={handleSubmit("tiktok")} />
+            <PlatformUpload platform="tiktok" onSubmit={handleSubmit} />
           </TabsContent>
         </Tabs>
       </div>
