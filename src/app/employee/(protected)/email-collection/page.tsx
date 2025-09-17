@@ -16,7 +16,7 @@ import { post } from '@/lib/axios';
 // ===================================================
 // API TYPES (updated to match actual payloads)
 // ===================================================
-export type Platform = 'youtube' | 'instagram' | 'tiktok' | 'twitter' | 'facebook' | 'other' | string;
+export type Platform = 'youtube' | 'instagram' | 'tiktok' | string;
 
 export interface InfluencerDetail {
     email: string;
