@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Home, Clock, Menu, X, CurrencyIcon, LogOut, Lock, Mail, CreditCard } from "lucide-react";
+import { Home, Clock, Menu, X, CurrencyIcon, LogOut, Lock, Mail, CreditCard, MailIcon } from "lucide-react";
 
 type NavItem = {
   label: string;
@@ -15,6 +15,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: Home },
   { label: 'Link History', href: '/admin/link-history', icon: Clock },
+  { label: 'Email Collection', href: '/admin/email-collection', icon: MailIcon },
   { label: 'Bulk Payment', href: '/admin/bulk-payment', icon: CreditCard },
   { label: 'Update Password', href: '/admin/update-password', icon: Lock },
   { label: 'Update Email', href: '/admin/update-email', icon: Mail },

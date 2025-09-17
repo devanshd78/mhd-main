@@ -394,7 +394,6 @@ export default function EmployeeEmailCollectionsPage() {
                         <SheetTitle className="flex items-center gap-2">
                             Saved Contacts
                         </SheetTitle>
-                        <SheetDescription>Per-user contact details.</SheetDescription>
                     </SheetHeader>
 
                     {!active ? (
@@ -403,8 +402,7 @@ export default function EmployeeEmailCollectionsPage() {
                         <div className="py-4 space-y-6">
                             <div>
                                 <div className="text-sm text-muted-foreground">User</div>
-                                <div className="font-medium">{active.name || active.userId}</div>
-                                <div className="text-xs text-muted-foreground">{active.userId}</div>
+                                <div className="font-medium">{active.name}</div>
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
@@ -414,21 +412,6 @@ export default function EmployeeEmailCollectionsPage() {
                                 </span>
                             </div>
 
-                            <Card className="border bg-white">
-                                <CardHeader className="p-4">
-                                    <div className="flex items-center gap-2">
-                                        <InfoIcon className="h-4 w-4 text-blue-600" />
-                                        <CardTitle className="text-sm">What to verify</CardTitle>
-                                    </div>
-                                </CardHeader>
-                                <CardContent className="pt-0 pb-4 px-4">
-                                    <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
-                                        <li>Email ↔ handle consistency</li>
-                                        <li>Platform label is correct</li>
-                                        <li>De-duplicate across users</li>
-                                    </ul>
-                                </CardContent>
-                            </Card>
 
                             <Card className="border bg-white">
                                 <CardHeader className="p-4">
@@ -465,15 +448,6 @@ export default function EmployeeEmailCollectionsPage() {
                                             </Table>
                                         </div>
                                     )}
-
-                                    <div className="flex gap-2 pt-2">
-                                        <Button size="sm" variant="outline" onClick={() => exportUserContactsCSV(active)}>
-                                            <Download className="h-4 w-4 mr-1" /> Export CSV
-                                        </Button>
-                                        <Button size="sm" variant="outline" onClick={() => openDetails(active)}>
-                                            <RefreshCcw className="h-4 w-4 mr-1" /> Refresh
-                                        </Button>
-                                    </div>
                                 </CardContent>
                             </Card>
                         </div>
