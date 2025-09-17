@@ -13,23 +13,7 @@ import Swal from 'sweetalert2';
 import 'sweetalert2/dist/sweetalert2.min.css';
 import { post } from '@/lib/axios';
 
-// ===================================================
-// Consumes getEmployeeOverviewAdmin API
-// POST body: { page, limit, detailsLimit, search? }
-// Response: {
-//   page, limit, totalEmployees, hasNext, detailsLimit, search,
-//   data: Array<{
-//     employeeName, employeeId, employeeEmail,
-//     teamCounts: { members: number; contactsTotal: number },
-//     collectors: Array<{
-//       username: string; userId: string; totalCollected: number;
-//       dataCollected: Array<{ email: string; handle: string; platform: string; createdAt?: string }>
-//     }>
-//   }>
-// }
-// ===================================================
-
-export type Platform = 'youtube' | 'instagram' | 'tiktok' | 'twitter' | 'facebook' | 'other' | string;
+export type Platform = 'youtube' | 'instagram' | 'tiktok' | string;
 
 interface ContactRow {
   email: string;
@@ -173,7 +157,7 @@ export default function AdminEmployeeOverviewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 space-y-6">
+    <div className="min-h-screen p-6 space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="border bg-white"><CardContent className="p-5"><div className="text-sm text-muted-foreground">Total Employees</div><div className="text-2xl font-semibold mt-1">{totalEmployees}</div></CardContent></Card>
