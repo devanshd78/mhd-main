@@ -309,12 +309,6 @@ export default function EmployeeEmailCollectionsPage() {
                         </div>
 
                         <div className="flex gap-2">
-                            <Button variant="outline" onClick={() => { setQ(''); setPlatform('all'); }}>
-                                Reset
-                            </Button>
-                            <Button variant="outline" onClick={loadList}>
-                                <RefreshCcw className="h-4 w-4 mr-1" /> Refresh
-                            </Button>
                             <Button onClick={exportAllContactsCSV}>
                                 <Download className="h-4 w-4 mr-1" /> Export All
                             </Button>
