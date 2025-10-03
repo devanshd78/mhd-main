@@ -370,7 +370,7 @@ export default function MissingListPage() {
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                   >
                     <UploadCloud className="w-4 h-4" />
-                    Upload Task (Selected)
+                    Create Task (Selected)
                   </button>
                 </>
               )}
@@ -576,7 +576,7 @@ export default function MissingListPage() {
                           className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                         >
                           <UploadCloud className="w-4 h-4" />
-                          Upload Task
+                          Create Task
                         </button>
                       </Td>
                     </tr>
@@ -663,7 +663,7 @@ export default function MissingListPage() {
           <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <h3 className="text-lg font-semibold">
-                {bulkMode ? `Upload Tasks (${selected.size} selected)` : 'Upload Task'}
+                {bulkMode ? `Create Tasks (${selected.size} selected)` : 'Create Task'}
               </h3>
               <button
                 onClick={closeUploadModal}
@@ -752,7 +752,7 @@ export default function MissingListPage() {
                   disabled={submitLoading}
                 >
                   {submitLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
-                  {submitLoading ? (bulkMode ? "Uploading..." : "Uploading...") : (bulkMode ? "Upload Tasks" : "Upload Task")}
+                  {submitLoading ? (bulkMode ? "Creating..." : "Creating...") : (bulkMode ? "Create Tasks" : "Create Task")}
                 </button>
               </div>
             </div>
