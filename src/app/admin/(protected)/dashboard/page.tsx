@@ -30,7 +30,6 @@ import {
   PlusIcon,
   Clock,
   LogOutIcon,
-  MoreVertical,
   LinkIcon,
   PlusCircle,
   Edit3,
@@ -107,6 +106,17 @@ const AdminDashboardPage: React.FC = () => {
   const [expireIn, setExpireIn] = useState('')
   const [creatingLink, setCreatingLink] = useState(false)
 
+  /* NEW: New Email Task modal */
+  const [emailTaskOpen, setEmailTaskOpen] = useState(false)
+  const [emailTargetUser, setEmailTargetUser] = useState('')
+  const [emailTargetPerEmployee, setEmailTargetPerEmployee] = useState('')
+  const [emailErrors, setEmailErrors] = useState<{platform?: string; amountPerPerson?: string; maxEmails?: string; expireIn?: string; targetPerEmployee?: string}>({})
+  const [emailPlatform, setEmailPlatform] = useState<'Instagram' | 'TikTok' | 'YouTube'>('YouTube')
+  const [emailAmountPerPerson, setEmailAmountPerPerson] = useState('')
+  const [emailMaxCount, setEmailMaxCount] = useState('')
+  const [emailExpireIn, setEmailExpireIn] = useState('')
+  const [creatingEmailTask, setCreatingEmailTask] = useState(false)
+
   /* Drill-down modals */
   const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null)
   const [links, setLinks] = useState<LinkEntry[]>([])
@@ -166,12 +176,65 @@ const AdminDashboardPage: React.FC = () => {
         amount: Number(linkAmount),
         expireIn: Number(expireIn),
       })
-      .then(res => {
+      .then(() => {
         setUploadOpen(false)
         router.push('/admin/link-history')
       })
       .catch(() => setError('Failed to create link.'))
       .finally(() => setCreatingLink(false))
+  }
+
+  /* NEW: Create Email Task */
+  const handleCreateEmailTask = () => {
+    setCreatingEmailTask(true)
+    setError('')
+
+    const errors: { platform?: string; amountPerPerson?: string; maxEmails?: string; expireIn?: string; targetPerEmployee?: string } = {}
+
+    const amountNum = Number(emailAmountPerPerson)
+    const maxEmailsNum = Number(emailMaxCount)
+    const expireNum = Number(emailExpireIn)
+    const targetPerEmpNum = Number(emailTargetPerEmployee)
+
+    if (!emailPlatform) errors.platform = 'Platform is required.'
+    if (!emailTargetPerEmployee || isNaN(targetPerEmpNum) || targetPerEmpNum <= 0) {
+      errors.targetPerEmployee = 'Enter a valid number (> 0).'
+    }
+    if (!emailAmountPerPerson || isNaN(amountNum) || amountNum <= 0) {
+      errors.amountPerPerson = 'Enter a valid amount (> 0).'
+    }
+    if (!emailMaxCount || isNaN(maxEmailsNum) || maxEmailsNum <= 0) {
+      errors.maxEmails = 'Enter a valid max email count (> 0).'
+    }
+    if (!emailExpireIn || isNaN(expireNum) || expireNum <= 0) {
+      errors.expireIn = 'Enter a valid expiration in hours (> 0).'
+    }
+
+    setEmailErrors(errors)
+
+    if (Object.keys(errors).length > 0) {
+      setCreatingEmailTask(false)
+      return
+    }
+
+    const adminId = localStorage.getItem('adminId') || ''
+
+    api
+      .post('/admin/emailtasks', {
+        adminId,
+        targetUser: emailTargetUser,
+        targetPerEmployee: targetPerEmpNum,
+        platform: emailPlatform,
+        amountPerPerson: amountNum,
+        maxEmails: maxEmailsNum,
+        expireIn: expireNum,
+      })
+      .then(() => {
+        setEmailTaskOpen(false)
+        Swal.fire('Created', 'Email task has been created.', 'success')
+      })
+      .catch(() => setError('Failed to create email task.'))
+      .finally(() => setCreatingEmailTask(false))
   }
 
   /* Fetch links for an employee */
@@ -380,6 +443,9 @@ const AdminDashboardPage: React.FC = () => {
     </div>
   )
 
+  const linkFormValid = !!linkTitle && !!linkTarget && !!linkAmount && !!expireIn
+  const emailFormValid = !!emailTargetPerEmployee && !!emailAmountPerPerson && !!emailMaxCount && !!emailExpireIn
+
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 lg:py-8 space-y-6">
       {/* Header */}
@@ -402,6 +468,15 @@ const AdminDashboardPage: React.FC = () => {
             className="flex items-center gap-1"
           >
             <PlusIcon className="h-4 w-4" /> New Link
+          </Button>
+          {/* NEW: New Email Task button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setEmailTaskOpen(true)}
+            className="flex items-center gap-1"
+          >
+            <PlusIcon className="h-4 w-4" /> New Email Task
           </Button>
           <Button
             variant="ghost"
@@ -456,8 +531,115 @@ const AdminDashboardPage: React.FC = () => {
               <DialogClose asChild>
                 <Button variant="ghost">Cancel</Button>
               </DialogClose>
-              <Button onClick={handleCreateLink} disabled={creatingLink || !linkTitle || !linkTarget || !linkAmount || !expireIn}>
+              <Button onClick={handleCreateLink} disabled={creatingLink || !linkFormValid}>
                 {creatingLink && <Loader2 className="animate-spin mr-2 h-4 w-4" />}
+                Create
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </DialogPortal>
+      </Dialog>
+
+      {/* NEW: Create Email Task Modal */}
+      <Dialog open={emailTaskOpen} onOpenChange={setEmailTaskOpen}>
+        <DialogPortal>
+          <DialogOverlay className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm" />
+          <DialogContent className={modalContainer}>
+            <DialogHeader>
+              <DialogTitle>Create new email task</DialogTitle>
+              <DialogDescription>
+                Define target user, platform, payout, cap, and expiration.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">Target user handle (optional)</label>
+              <Input
+                placeholder="e.g. @brand or domain"
+                value={emailTargetUser}
+                onChange={e => setEmailTargetUser(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">Target per employee (number of users)</label>
+              <Input
+                type="number"
+                placeholder="e.g. 5"
+                value={emailTargetPerEmployee}
+                onChange={e => setEmailTargetPerEmployee(e.target.value)}
+                className={`w-full ${emailErrors.targetPerEmployee ? 'border-red-500' : ''}`}
+              />
+              {emailErrors.targetPerEmployee && (
+                <p className="text-xs text-red-600 mt-1">{emailErrors.targetPerEmployee}</p>
+              )}
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">Platform</label>
+              <select
+                className={`w-full rounded border px-3 py-2 ${emailErrors.platform ? 'border-red-500' : ''}`}
+                value={emailPlatform}
+                onChange={e => setEmailPlatform(e.target.value as 'Instagram' | 'TikTok' | 'YouTube')}
+              >
+                <option value="Instagram">Instagram</option>
+                <option value="TikTok">TikTok</option>
+                <option value="YouTube">YouTube</option>
+              </select>
+              {emailErrors.platform && (
+                <p className="text-xs text-red-600 mt-1">{emailErrors.platform}</p>
+              )}
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">Amount per person</label>
+              <Input
+                type="number"
+                placeholder="e.g. 10"
+                value={emailAmountPerPerson}
+                onChange={e => setEmailAmountPerPerson(e.target.value)}
+                className={`w-full ${emailErrors.amountPerPerson ? 'border-red-500' : ''}`}
+              />
+              {emailErrors.amountPerPerson && (
+                <p className="text-xs text-red-600 mt-1">{emailErrors.amountPerPerson}</p>
+              )}
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">Max no. of emails in task</label>
+              <Input
+                type="number"
+                placeholder="e.g. 100"
+                value={emailMaxCount}
+                onChange={e => setEmailMaxCount(e.target.value)}
+                className={`w-full ${emailErrors.maxEmails ? 'border-red-500' : ''}`}
+              />
+              {emailErrors.maxEmails && (
+                <p className="text-xs text-red-600 mt-1">{emailErrors.maxEmails}</p>
+              )}
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">Expiration (hours)</label>
+              <Input
+                type="number"
+                placeholder="e.g. 24"
+                value={emailExpireIn}
+                onChange={e => setEmailExpireIn(e.target.value)}
+                className={`w-full ${emailErrors.expireIn ? 'border-red-500' : ''}`}
+              />
+              {emailErrors.expireIn && (
+                <p className="text-xs text-red-600 mt-1">{emailErrors.expireIn}</p>
+              )}
+            </div>
+
+            <DialogFooter className="mt-4">
+              <DialogClose asChild>
+                <Button variant="ghost">Cancel</Button>
+              </DialogClose>
+              <Button onClick={handleCreateEmailTask} disabled={creatingEmailTask || !emailFormValid}>
+                {creatingEmailTask && <Loader2 className="animate-spin mr-2 h-4 w-4" />}
                 Create
               </Button>
             </DialogFooter>

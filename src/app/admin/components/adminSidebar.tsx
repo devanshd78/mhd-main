@@ -15,7 +15,8 @@ type NavItem = {
 const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: Home },
   { label: 'Link History', href: '/admin/link-history', icon: Clock },
-  { label: 'Email Collection', href: '/admin/email-collection', icon: MailIcon },
+  { label: 'Email Task', href: '/admin/email-tasks', icon: MailIcon },
+  { label: 'Missng Emails', href: '/admin/missing-emails', icon: Mail },
   { label: 'Bulk Payment', href: '/admin/bulk-payment', icon: CreditCard },
   { label: 'Update Password', href: '/admin/update-password', icon: Lock },
   { label: 'Update Email', href: '/admin/update-email', icon: Mail },
