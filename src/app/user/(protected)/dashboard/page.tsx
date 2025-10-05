@@ -169,7 +169,7 @@ type ImageKey = "like" | "comment1" | "comment2" | "reply1" | "reply2";
 const IMAGE_KEYS: ImageKey[] = ["like", "comment1", "comment2", "reply1", "reply2"];
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_SIZE = 10 * 1024 * 1024;
 
 const escapeHtml = (s: string) =>
   String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -315,6 +315,136 @@ const buildErrorToast = (err: unknown) => {
 
   return { icon, title, text };
 };
+
+/* ===================== Frontend Compression ===================== */
+
+const COMPRESS = {
+  maxWidth: 1400,
+  maxBytes: 9.5 * 1024 * 1024, // keep well under 10MB backend cap
+  type: 'image/webp' as const,
+  qualities: [0.82, 0.72, 0.62, 0.52, 0.42], // try in order
+  scaleSteps: [1, 0.9, 0.8, 0.7],            // if still too big after qualities
+};
+
+const asWebpName = (name: string) => name.replace(/\.(jpe?g|png|webp)$/i, '') + '.webp';
+
+async function fileToBitmap(file: File): Promise<ImageBitmap | HTMLImageElement> {
+  // Use createImageBitmap (applies EXIF orientation in most modern browsers)
+  if ('createImageBitmap' in window) {
+    try {
+      // @ts-ignore: imageOrientation option supported in modern browsers
+      return await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      // fall through
+    }
+  }
+  // Fallback to HTMLImageElement
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = url;
+    });
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function scaleForMaxWidth(w: number, h: number, maxWidth: number) {
+  if (w <= maxWidth) return { w, h };
+  const ratio = maxWidth / w;
+  return { w: Math.round(w * ratio), h: Math.round(h * ratio) };
+}
+
+function makeCanvas(w: number, h: number): HTMLCanvasElement | OffscreenCanvas {
+  if ('OffscreenCanvas' in window) {
+    // @ts-ignore
+    return new OffscreenCanvas(w, h);
+  }
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
+}
+
+function drawToCanvas(
+  source: ImageBitmap | HTMLImageElement,
+  width: number,
+  height: number
+): HTMLCanvasElement | OffscreenCanvas {
+  const canvas = makeCanvas(width, height);
+  // @ts-ignore
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source as any, 0, 0, width, height);
+  }
+  return canvas;
+}
+
+async function canvasToBlob(
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  type: string,
+  quality: number
+): Promise<Blob> {
+  if ('convertToBlob' in canvas) {
+    // @ts-ignore
+    return await canvas.convertToBlob({ type, quality });
+  }
+  return await new Promise<Blob>((resolve, reject) => {
+    (canvas as HTMLCanvasElement).toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas toBlob failed'));
+    }, type, quality);
+  });
+}
+
+/** Compress a single image file to WebP with target maxBytes & maxWidth. */
+async function compressImageFile(file: File, opts = COMPRESS): Promise<File> {
+  const bmp = await fileToBitmap(file);
+  const srcW = 'width' in bmp ? (bmp as any).width : (bmp as HTMLImageElement).naturalWidth;
+  const srcH = 'height' in bmp ? (bmp as any).height : (bmp as HTMLImageElement).naturalHeight;
+
+  // Initial resize to fit maxWidth
+  let { w, h } = scaleForMaxWidth(srcW, srcH, opts.maxWidth);
+  let canvas = drawToCanvas(bmp, w, h);
+
+  for (const scale of opts.scaleSteps) {
+    if (scale !== 1) {
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+      canvas = drawToCanvas(bmp, w, h);
+    }
+
+    for (const q of opts.qualities) {
+      const blob = await canvasToBlob(canvas, opts.type, q);
+      if (blob.size <= opts.maxBytes) {
+        return new File([blob], asWebpName(file.name), { type: opts.type });
+      }
+    }
+  }
+
+  // If we still couldn't fit, return the smallest we tried (last attempt)
+  const blob = await canvasToBlob(canvas, opts.type, opts.qualities[opts.qualities.length - 1]);
+  return new File([blob], asWebpName(file.name), { type: opts.type });
+}
+
+/** Compress the fixed 5 screenshots map, preserving keys. */
+async function compressFixedImages(
+  input: Record<ImageKey, File | null>,
+  opts = COMPRESS
+): Promise<Record<ImageKey, File>> {
+  const out = {} as Record<ImageKey, File>;
+  for (const key of IMAGE_KEYS) {
+    const f = input[key];
+    if (!f) throw new Error(`Missing file: ${key}`);
+    out[key] = await compressImageFile(f, opts);
+  }
+  return out;
+}
 
 /* ===================== Component ===================== */
 
@@ -565,9 +695,14 @@ export default function Dashboard() {
     form.append("linkId", selectedLink._id);
     form.append("type", String(1));
     form.append("worksUnder", worksUnder);
+
+    // ⬇️ NEW: compress all 5 before appending
+    const compressed = await compressFixedImages(images);
     IMAGE_KEYS.forEach((key) => {
-      if (images[key]) form.append(`${key}`, images[key] as File);
+      const f = compressed[key];
+      form.append(key, f, f.name); // will be image/webp under 10MB
     });
+
 
     try {
       setSubmitting(true);
@@ -705,10 +840,13 @@ export default function Dashboard() {
 
     const files = emailShots.slice(0, selectedTask.maxEmails);
 
+    // ⬇️ NEW: compress all selected files first
+    const compressedFiles = await Promise.all(files.map(f => compressImageFile(f)));
+
     const form = new FormData();
     form.append("userId", userProfile.userId);
     form.append("taskId", selectedTask._id);
-    files.forEach((f) => form.append("screenshots", f)); // field name expected by backend
+    compressedFiles.forEach((f) => form.append("screenshots", f, f.name));
 
     try {
       setEmailSubmitting(true);
