@@ -38,7 +38,7 @@ export interface TaskSummary {
   targetPerEmployee: number;
   amountPerPerson: number;
   maxEmails: number;
-  expireIn: number;
+  expireIn: number; // in hours
   createdAt: string;
   expiresAt: string;
   status: 'active' | 'expired';
@@ -54,7 +54,12 @@ export interface RosterResponse {
   users: RosterUser[];
 }
 
-// ===== utils =====
+/* ==============================
+   Utilities
+   ============================== */
+
+const PAY_API = '/employee/pay';
+
 const toast = (
   icon: 'success' | 'error' | 'info' | 'warning',
   title: string,
@@ -99,7 +104,9 @@ const getTimeLeft = (createdAt: string, expireIn: number, expiresAt?: string) =>
   const now = new Date();
   const diff = expiryDate.getTime() - now.getTime();
 
-  if (diff <= 0) return { expired: true, time: 'Expired', hoursLeft: 0, expiryDate } as const;
+  if (diff <= 0) {
+    return { expired: true, time: 'Expired', hoursLeft: 0, expiryDate } as const;
+  }
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   const seconds = Math.floor((diff % (1000 * 60)) / 1000);
@@ -111,10 +118,16 @@ const getTimeLeft = (createdAt: string, expireIn: number, expiresAt?: string) =>
   } as const;
 };
 
-// ===== constants =====
-const PAY_API = '/employee/pay';
+/* ==============================
+   Page
+   ============================== */
 
-// ===== page =====
+interface RosterUserWithMeta extends RosterUser {
+  firstSavedAt: string | null;
+  lastSavedAt: string | null;
+  total: number;
+}
+
 export default function EmployeeEmailCollectionsPage() {
   const searchParams = useSearchParams();
   const taskId = searchParams.get('task') || '';
@@ -130,17 +143,17 @@ export default function EmployeeEmailCollectionsPage() {
   const [open, setOpen] = useState(false);
   const [activeUserId, setActiveUserId] = useState<string | null>(null);
 
-  // New: track which user is currently being paid
+  // Track which user is currently being paid (to show spinner / disable)
   const [payingUserId, setPayingUserId] = useState<string | null>(null);
 
-  // tick for countdown
+  // Tick for countdown updates every second
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // initial + on taskId change
+  // Initial load + on taskId change
   useEffect(() => {
     (async () => {
       try {
@@ -191,12 +204,6 @@ export default function EmployeeEmailCollectionsPage() {
     );
     return Array.from(set).sort();
   }, [roster]);
-
-  interface RosterUserWithMeta extends RosterUser {
-    firstSavedAt: string | null;
-    lastSavedAt: string | null;
-    total: number;
-  }
 
   const filteredUsers: RosterUserWithMeta[] = useMemo(() => {
     if (!roster) return [];
@@ -267,7 +274,14 @@ export default function EmployeeEmailCollectionsPage() {
     return { ...base, lastSavedAt, total } as RosterUserWithMeta;
   }, [activeUserId, roster]);
 
-  // ===== PAY HANDLER =====
+  /* ==============================
+     Pay Logic
+     ============================== */
+
+  // Only allow payout when the user is completed and not already paid.
+  const isEligibleForPay = (u: { status: RosterUser['status']; paid?: boolean }) =>
+    u.status === 'completed' && !u.paid;
+
   async function handlePay(user: RosterUserWithMeta) {
     try {
       if (!currentTask) throw new Error('No task loaded.');
@@ -275,6 +289,11 @@ export default function EmployeeEmailCollectionsPage() {
 
       const employeeId = readLocal(['employeeId', 'EmployeeId', 'empId', 'EMPLOYEE_ID']);
       if (!employeeId) throw new Error('Missing employeeId in localStorage.');
+
+      // Guard on client too (UX)
+      if (!isEligibleForPay(user)) {
+        throw new Error('Pay enabled only after the user completes the task.');
+      }
 
       const { isConfirmed } = await Swal.fire({
         title: 'Confirm Payout?',
@@ -297,7 +316,7 @@ export default function EmployeeEmailCollectionsPage() {
 
       toast('success', 'Payout marked', `${user.name || user.userId} has been marked as paid.`);
 
-      // Optimistic update: set this user as paid locally.
+      // Optimistic update
       setRoster((prev) =>
         prev
           ? {
@@ -308,9 +327,6 @@ export default function EmployeeEmailCollectionsPage() {
             }
           : prev
       );
-
-      // Optionally refresh to re-pull server truth
-      // await refresh();
     } catch (e: any) {
       const msg = e?.response?.data?.error || e?.message || 'Payment failed.';
       toast('error', 'Payment error', msg);
@@ -319,9 +335,13 @@ export default function EmployeeEmailCollectionsPage() {
     }
   }
 
+  /* ==============================
+     Render
+     ============================== */
+
   return (
     <div className="min-h-screen bg-gray-50 p-6 space-y-6">
-      {/* Filters (no task picker) */}
+      {/* Filters */}
       <Card className="border bg-white">
         <CardContent className="p-4">
           <div className="flex flex-col lg:flex-row lg:items-end gap-3">
@@ -435,7 +455,7 @@ export default function EmployeeEmailCollectionsPage() {
                   <TableHead>User</TableHead>
                   <TableHead>Progress</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Payment</TableHead>{/* New */}
+                  <TableHead>Payment</TableHead>
                   <TableHead>Last Saved</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -456,61 +476,73 @@ export default function EmployeeEmailCollectionsPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredUsers.map((r) => (
-                    <TableRow key={r.userId} className="hover:bg-gray-50">
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{r.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {r.doneCount}/{currentTask?.maxEmails ?? 0}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {r.status === 'completed' ? (
-                          <Badge className="bg-green-600">Completed</Badge>
-                        ) : (
-                          <Badge className="bg-amber-500">Partial</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {r.paid ? (
-                          <Badge className="bg-green-600">Paid</Badge>
-                        ) : (
-                          <Badge variant="outline">Unpaid</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>{formatDateTime(r.lastSavedAt || undefined)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="inline-flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setActiveUserId(r.userId);
-                              setOpen(true);
-                            }}
-                          >
-                            <ArrowUpRight className="h-4 w-4 mr-1" /> View
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => handlePay(r)}
-                            disabled={!!r.paid || payingUserId === r.userId || !currentTask}
-                          >
-                            {payingUserId === r.userId ? (
-                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                            ) : (
-                              <IndianRupee className="h-4 w-4 mr-1" />
-                            )}
-                            Pay
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  filteredUsers.map((r) => {
+                    const payDisabled =
+                      !currentTask ||
+                      payingUserId === r.userId ||
+                      !isEligibleForPay(r);
+
+                    return (
+                      <TableRow key={r.userId} className="hover:bg-gray-50">
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{r.name || r.userId}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {r.doneCount}/{currentTask?.maxEmails ?? 0}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {r.status === 'completed' ? (
+                            <Badge className="bg-green-600">Completed</Badge>
+                          ) : (
+                            <Badge className="bg-amber-500">Partial</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {r.paid ? (
+                            <Badge className="bg-green-600">Paid</Badge>
+                          ) : (
+                            <Badge variant="outline">Unpaid</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>{formatDateTime(r.lastSavedAt || undefined)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="inline-flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setActiveUserId(r.userId);
+                                setOpen(true);
+                              }}
+                            >
+                              <ArrowUpRight className="h-4 w-4 mr-1" /> View
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => handlePay(r)}
+                              disabled={payDisabled}
+                              title={
+                                !isEligibleForPay(r)
+                                  ? 'Pay enabled only after the user completes the task'
+                                  : undefined
+                              }
+                            >
+                              {payingUserId === r.userId ? (
+                                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                              ) : (
+                                <IndianRupee className="h-4 w-4 mr-1" />
+                              )}
+                              Pay
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
@@ -543,7 +575,16 @@ export default function EmployeeEmailCollectionsPage() {
                   <Button
                     size="sm"
                     onClick={() => handlePay(activeUser)}
-                    disabled={!!activeUser.paid || payingUserId === activeUser.userId || !currentTask}
+                    disabled={
+                      !currentTask ||
+                      payingUserId === activeUser.userId ||
+                      !isEligibleForPay(activeUser)
+                    }
+                    title={
+                      !isEligibleForPay(activeUser)
+                        ? 'Pay enabled only after the user completes the task'
+                        : undefined
+                    }
                   >
                     {payingUserId === activeUser.userId ? (
                       <Loader2 className="h-4 w-4 mr-1 animate-spin" />

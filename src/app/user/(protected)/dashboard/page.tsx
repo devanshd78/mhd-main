@@ -38,6 +38,22 @@ interface BatchItemDetails {
   handleUserId?: string;
 }
 
+interface YoutubeInfo {
+  channelId?: string;
+  title?: string;
+  handle?: string;
+  urlByHandle?: string;
+  urlById?: string;
+  description?: string;
+  country?: string;
+  subscriberCount?: number;
+  videoCount?: number;
+  viewCount?: number;
+  topicCategories?: string[];
+  topicCategoryLabels?: string[];
+  fetchedAt?: string;
+}
+
 interface BatchItemResult {
   error?: string;
   has_captcha?: boolean;
@@ -50,7 +66,7 @@ interface BatchItemResult {
   normalized?: { email?: string | null; handle?: string | null };
   details?: BatchItemDetails;
   db?: { saved?: boolean; id?: string };
-  youtube?: any;
+  youtube?: YoutubeInfo | null;
   youtubeSaved?: boolean;
   youtubeMessage?: string | null;
 }
@@ -88,39 +104,39 @@ interface EmailTaskItem {
   expiresAt?: string;
   status?: "active" | "expired";
   isLatest?: boolean;
-  isCompleted: number;     // 0 | 1
-  isPartial?: number;      // 0 | 1
-  doneCount?: number;      // how many done by this user
+  isCompleted: number; // 0 | 1
+  isPartial?: number; // 0 | 1
+  doneCount?: number; // how many done by this user
 }
 
 // Include the new fields in the MergedItem `task` variant as well
-type MergedItem =
+ type MergedItem =
   | {
-    kind: "link";
-    _id: string;
-    createdAt: string;
-    expireIn: number;
-    isLatest?: boolean;
-    title: string;
-    target?: number;
-    amount?: number;
-    isCompleted: number;
-  }
+      kind: "link";
+      _id: string;
+      createdAt: string;
+      expireIn: number;
+      isLatest?: boolean;
+      title: string;
+      target?: number;
+      amount?: number;
+      isCompleted: number;
+    }
   | {
-    kind: "task";
-    _id: string;
-    createdAt: string;
-    expireIn: number;
-    isLatest?: boolean;
-    platform: string;
-    targetUser?: string | number;
-    targetPerEmployee: number;
-    amountPerPerson: number;
-    maxEmails: number;
-    isCompleted: number;  // 0 | 1
-    isPartial?: number;   // 0 | 1
-    doneCount?: number;   // number completed by user
-  };
+      kind: "task";
+      _id: string;
+      createdAt: string;
+      expireIn: number;
+      isLatest?: boolean;
+      platform: string;
+      targetUser?: string | number;
+      targetPerEmployee: number;
+      amountPerPerson: number;
+      maxEmails: number;
+      isCompleted: number; // 0 | 1
+      isPartial?: number; // 0 | 1
+      doneCount?: number; // number completed by user
+    };
 
 interface UserProfile {
   _id: string;
@@ -446,6 +462,80 @@ async function compressFixedImages(
   return out;
 }
 
+/* ===================== Outcome Classification (YouTube) ===================== */
+
+type OutcomeKey =
+  | "saved"
+  | "duplicate"
+  | "invalid"
+  | "captcha"
+  | "skipped_policy"
+  | "no_handle"
+  | "no_channel"
+  | "error"
+  | "unknown";
+
+const OUTCOME_LABELS: Record<OutcomeKey, string> = {
+  saved: "Saved",
+  duplicate: "Duplicate",
+  invalid: "Invalid",
+  captcha: "Captcha",
+  skipped_policy: "Skipped (policy)",
+  no_handle: "No handle",
+  no_channel: "No channel",
+  error: "Error",
+  unknown: "Unknown",
+};
+
+// Helpers for reading the batch response safely
+const firstOf = <T,>(arr?: T[] | null) => (Array.isArray(arr) && arr.length ? arr[0] : null);
+
+// Prefer normalized → YouTube (object.handle) → more_info.handles → parse more_info.YouTube
+const pickEmail = (r: BatchItemResult) => r.normalized?.email ?? firstOf(r.more_info?.emails) ?? null;
+
+const pickHandle = (r: BatchItemResult) =>
+  r.normalized?.handle ??
+  (r.youtube && typeof r.youtube === "object" ? r.youtube.handle ?? null : null) ??
+  (Array.isArray(r.more_info?.handles) && r.more_info!.handles!.length ? r.more_info!.handles![0] : null) ??
+  (typeof r.more_info?.YouTube === "string"
+    ? (r.more_info!.YouTube!.match(/@[\w.-]+/i)?.[0] ?? null)
+    : null);
+
+function classifyResult(r: BatchItemResult): { key: OutcomeKey; text: string; reason: string } {
+  // Success/duplicate short-circuit
+  if (r.db?.saved) return { key: "saved", text: OUTCOME_LABELS.saved, reason: r.youtubeMessage || r.details?.message || "" };
+  if (r.details?.outcome === "duplicate") return { key: "duplicate", text: OUTCOME_LABELS.duplicate, reason: r.details?.message || "" };
+
+  // Captcha
+  if (r.has_captcha) return { key: "captcha", text: OUTCOME_LABELS.captcha, reason: r.details?.message || r.youtubeMessage || "" };
+
+  const err = (r.error || "").toLowerCase();
+  const msgRaw = (r.youtubeMessage || r.details?.message || r.error || "").trim();
+
+  // Policy skip (subscriber bounds etc.)
+  if (err.includes("subscribercount") || (r.youtubeMessage || "").toLowerCase().includes("subscriber policy")) {
+    return { key: "skipped_policy", text: OUTCOME_LABELS.skipped_policy, reason: msgRaw || "Subscriber policy" };
+  }
+
+  // No handle / no channel
+  if (err.includes("no youtube handle found")) {
+    return { key: "no_handle", text: OUTCOME_LABELS.no_handle, reason: msgRaw || "No @handle present" };
+  }
+  if (err.includes("no youtube channel found")) {
+    return { key: "no_channel", text: OUTCOME_LABELS.no_channel, reason: msgRaw || "Handle has no channel" };
+  }
+
+  // Explicit invalid from backend
+  if (r.details?.outcome === "invalid") {
+    return { key: "invalid", text: OUTCOME_LABELS.invalid, reason: msgRaw || "Invalid submission" };
+  }
+
+  // Generic errors
+  if (r.error) return { key: "error", text: OUTCOME_LABELS.error, reason: msgRaw };
+
+  return { key: "unknown", text: OUTCOME_LABELS.unknown, reason: "" };
+}
+
 /* ===================== Component ===================== */
 
 export default function Dashboard() {
@@ -548,7 +638,6 @@ export default function Dashboard() {
     return () => c.abort();
   }, []);
 
-  // links
   // --- Data loaders (reusable) ---
   const fetchLinks = useCallback(async () => {
     const userId = localStorage.getItem("userId");
@@ -592,7 +681,6 @@ export default function Dashboard() {
 
   useEffect(() => { fetchLinks(); }, [fetchLinks]);
   useEffect(() => { fetchEmailTasks(); }, [fetchEmailTasks]);
-
 
   /* ===================== Utils ===================== */
 
@@ -696,13 +784,12 @@ export default function Dashboard() {
     form.append("type", String(1));
     form.append("worksUnder", worksUnder);
 
-    // ⬇️ NEW: compress all 5 before appending
+    // compress all 5 before appending
     const compressed = await compressFixedImages(images);
     IMAGE_KEYS.forEach((key) => {
       const f = compressed[key];
       form.append(key, f, f.name); // will be image/webp under 10MB
     });
-
 
     try {
       setSubmitting(true);
@@ -725,8 +812,8 @@ export default function Dashboard() {
           <p><b>Reply 2:</b> ${escapeHtml(replies[1] || "—")}</p>
           <p><b>Amount will be paid:</b> ₹${escapeHtml(String(en.totalAmount))}</p>
           <p><b>Date:</b> ${escapeHtml(new Date(en.createdAt).toLocaleString('en-US', {
-        day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
-      }))}</p>
+            day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+          }))}</p>
         </div>
       `;
 
@@ -742,7 +829,6 @@ export default function Dashboard() {
       Swal.fire({ toast: true, position: "top-end", icon, title, text, showConfirmButton: false, timer: 3200, timerProgressBar: true });
     } finally {
       setSubmitting(false);
-
     }
   };
 
@@ -754,28 +840,9 @@ export default function Dashboard() {
     setSelectedTask(null);
   };
 
-  // Helpers for reading the batch response safely
-  const firstOf = <T,>(arr?: T[] | null) => (Array.isArray(arr) && arr.length ? arr[0] : null);
-
-  const handleFromYouTube = (yt?: string | null) => {
-    if (!yt) return null;
-    const m = String(yt).match(/@[\w.-]+/i);
-    return m ? m[0] : null;
-  };
-
-  const pickEmail = (r: BatchItemResult) =>
-    r.normalized?.email ?? firstOf(r.more_info?.emails) ?? null;
-
-  const pickHandle = (r: BatchItemResult) =>
-    r.normalized?.handle ??
-    firstOf(r.more_info?.handles) ??
-    handleFromYouTube(r.more_info?.YouTube) ??
-    null;
-
-
   const openEmailTask = (task: EmailTaskItem) => {
     setSelectedTask(task);
-    setEmailShots([]);        // start empty; user can pick many at once
+    setEmailShots([]);
     setEmailShotError("");
     setEmailModalOpen(true);
   };
@@ -787,7 +854,6 @@ export default function Dashboard() {
     const arr = files ? Array.from(files) : [];
     const max = selectedTask.maxEmails;
 
-    // validations
     const validated: File[] = [];
     for (const f of arr) {
       if (!ALLOWED_TYPES.includes(f.type)) {
@@ -840,7 +906,7 @@ export default function Dashboard() {
 
     const files = emailShots.slice(0, selectedTask.maxEmails);
 
-    // ⬇️ NEW: compress all selected files first
+    // compress all selected files first
     const compressedFiles = await Promise.all(files.map(f => compressImageFile(f)));
 
     const form = new FormData();
@@ -857,42 +923,62 @@ export default function Dashboard() {
       });
 
       const results = Array.isArray(data?.results) ? data.results : [];
-      const saved = results.filter(r => r.db?.saved).length;
-      const duplicates = results.filter(r => r.details?.outcome === "duplicate").length;
-      const invalid = results.filter(r =>
-        r.details?.outcome === "invalid" || r.error
-      ).length;
-      const captcha = results.filter(r => r.has_captcha).length;
 
-      // Build compact HTML table
+      // Count all outcomes precisely
+      const initCounts: Record<OutcomeKey, number> = {
+        saved: 0,
+        duplicate: 0,
+        invalid: 0,
+        captcha: 0,
+        skipped_policy: 0,
+        no_handle: 0,
+        no_channel: 0,
+        error: 0,
+        unknown: 0,
+      };
+      const counts = results.reduce((acc, r) => {
+        const { key } = classifyResult(r);
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, { ...initCounts });
+
+      // Build compact HTML table with Outcome + Reason
       const rows = results.map((r, i) => {
         const email = pickEmail(r) ?? "";
         const handle = pickHandle(r) ?? "";
-        const outcome =
-          r.db?.saved
-            ? "saved"
-            : r.details?.outcome || (r.has_captcha ? "captcha" : r.error ? "error" : "unknown");
+        const { text, reason } = classifyResult(r);
 
         return `
     <tr>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;">${i + 1}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;">${handle || "—"}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;">${email || "—"}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-transform:capitalize;">${outcome}</td>
+      <td style=\"padding:6px 8px;border-bottom:1px solid #eee;text-transform:capitalize;\">${text}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;">${reason ? String(reason).replace(/</g,"&lt;").replace(/>/g,"&gt;") : "—"}</td>
     </tr>
   `;
       }).join("");
 
+      // Helper to render count chips only when non-zero
+      const chip = (label: string, n: number) =>
+        n > 0 ? `<span style="display:inline-block;margin:2px 6px 2px 0;padding:3px 8px;border:1px solid #e5e7eb;border-radius:999px;font-size:12px;">${label}: <b>${n}</b></span>` : "";
 
       const html = `
       <div style="text-align:left">
         <p style="margin:8px 0;">
           <b>Processed:</b> ${data.accepted}/${data.maxImages}
-          &nbsp; | &nbsp; <b>Saved:</b> ${saved}
-          &nbsp; | &nbsp; <b>Duplicates:</b> ${duplicates}
-          &nbsp; | &nbsp; <b>Invalid:</b> ${invalid}
-          &nbsp; | &nbsp; <b>Captcha:</b> ${captcha}
         </p>
+        <div style="margin:6px 0 10px;">
+          ${chip("Saved", counts.saved)}
+          ${chip("Duplicate", counts.duplicate)}
+          ${chip("Invalid", counts.invalid)}
+          ${chip("Captcha", counts.captcha)}
+          ${chip("Skipped (policy)", counts.skipped_policy)}
+          ${chip("No handle", counts.no_handle)}
+          ${chip("No channel", counts.no_channel)}
+          ${chip("Error", counts.error)}
+          ${chip("Unknown", counts.unknown)}
+        </div>
         <div style="max-height:300px;overflow:auto;border:1px solid #eee;border-radius:6px;">
           <table style="width:100%;border-collapse:collapse;font-size:12px;">
             <thead>
@@ -901,6 +987,7 @@ export default function Dashboard() {
                 <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee;">Handle</th>
                 <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee;">Email</th>
                 <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee;">Outcome</th>
+                <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee;">Reason</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -938,7 +1025,6 @@ export default function Dashboard() {
     }
   };
 
-
   /* ===================== Merge (Newest First) ===================== */
 
   const mergedItems = useMemo<MergedItem[]>(() => {
@@ -968,13 +1054,10 @@ export default function Dashboard() {
       targetPerEmployee: t.targetPerEmployee,
       amountPerPerson: t.amountPerPerson,
       maxEmails: t.maxEmails,
-
-      // NEW:
       isCompleted: t.isCompleted ?? 0,
       isPartial: t.isPartial ?? 0,
       doneCount: t.doneCount ?? 0,
     }));
-
 
     return [...linkItems, ...taskItems].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -1015,7 +1098,7 @@ export default function Dashboard() {
             </Card>
           ) : (
             mergedItems.map((item) => {
-              const { expired, label } = getTimeLeft(item.createdAt, item.expireIn || 0);
+              const { expired, label } = getTimeLeft(item.createdAt, (item as any).expireIn || 0);
 
               if (item.kind === "link") {
                 return (
@@ -1042,16 +1125,16 @@ export default function Dashboard() {
                     </CardHeader>
 
                     <CardContent className="space-y-2 p-4 text-sm text-gray-700">
-                      {typeof item.target === "number" && (
+                      {typeof (item as any).target === "number" && (
                         <div className="flex justify-between">
                           <span>Target</span>
-                          <span className="font-medium">{item.target}</span>
+                          <span className="font-medium">{(item as any).target}</span>
                         </div>
                       )}
-                      {typeof item.amount === "number" && (
+                      {typeof (item as any).amount === "number" && (
                         <div className="flex justify-between">
                           <span>Amount</span>
-                          <span className="font-semibold">₹{item.amount}</span>
+                          <span className="font-semibold">₹{(item as any).amount}</span>
                         </div>
                       )}
                       <div className="flex justify-between">
@@ -1063,7 +1146,7 @@ export default function Dashboard() {
                     <CardFooter className="p-4 pt-0">
                       {item.isCompleted === 0 && item.isLatest && !expired && (
                         <div className="w-full flex flex-col sm:flex-row gap-2 sm:justify-end">
-                          <Button variant="outline" className="w-full sm:w-auto" size="sm" onClick={() => handleCopy(item.title)}>
+                          <Button variant="outline" className="w-full sm:w-auto" size="sm" onClick={() => handleCopy((item as any).title)}>
                             <ClipboardCopyIcon className="h-4 w-4 mr-1" /> Copy
                           </Button>
                           <Button
@@ -1072,12 +1155,12 @@ export default function Dashboard() {
                             onClick={() =>
                               openEntryModal({
                                 _id: item._id,
-                                title: item.title,
+                                title: (item as any).title,
                                 isLatest: !!item.isLatest,
-                                target: item.target,
-                                amount: item.amount,
+                                target: (item as any).target,
+                                amount: (item as any).amount,
                                 createdAt: item.createdAt,
-                                expireIn: item.expireIn,
+                                expireIn: (item as any).expireIn,
                                 isCompleted: item.isCompleted,
                               } as LinkItem)
                             }
@@ -1092,28 +1175,29 @@ export default function Dashboard() {
               }
 
               // Email task card
+              const t = item as Extract<MergedItem, { kind: "task" }>;
               return (
                 <Card
-                  key={`task-${item._id}`}
-                  className={`group rounded-xl hover:shadow-lg transition-shadow bg-white border shadow-sm ${item.isLatest ? "border-blue-500" : "border-gray-200"
+                  key={`task-${t._id}`}
+                  className={`group rounded-xl hover:shadow-lg transition-shadow bg-white border shadow-sm ${t.isLatest ? "border-blue-500" : "border-gray-200"
                     }`}
                 >
                   <CardHeader className="p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <CardTitle className="text-base sm:text-lg font-medium text-gray-800 break-words">
-                        {item.targetUser || "Email Task"}
+                        {t.targetUser || "Email Task"}
                       </CardTitle>
 
-                      {/* NEW: status-aware badge */}
+                      {/* status-aware badge */}
                       {(() => {
-                        const done = Number(item.doneCount ?? 0);
+                        const done = Number(t.doneCount ?? 0);
                         const hasProgress = done > 0;
                         const status =
-                          item.isCompleted === 1
+                          t.isCompleted === 1
                             ? { text: "Completed", cls: "border-green-500 text-green-600" }
-                            : item.isPartial === 1 || hasProgress
+                            : t.isPartial === 1 || hasProgress
                               ? { text: "In progress", cls: "border-amber-500 text-amber-600" }
-                              : item.isLatest
+                              : t.isLatest
                                 ? { text: "Latest", cls: "border-blue-500 text-blue-600" }
                                 : null;
 
@@ -1129,25 +1213,25 @@ export default function Dashboard() {
                   <CardContent className="space-y-3 p-4 text-sm text-gray-700">
                     <div className="flex justify-between">
                       <span>Platform</span>
-                      <span className="font-medium">{item.platform}</span>
+                      <span className="font-medium">{t.platform}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Target / employee</span>
-                      <span className="font-medium">{item.targetPerEmployee}</span>
+                      <span className="font-medium">{t.targetPerEmployee}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Amount / person</span>
-                      <span className="font-semibold">₹{item.amountPerPerson}</span>
+                      <span className="font-semibold">₹{t.amountPerPerson}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Max screenshots</span>
-                      <span className="font-medium">{item.maxEmails}</span>
+                      <span className="font-medium">{t.maxEmails}</span>
                     </div>
 
-                    {/* NEW: progress (doneCount / targetPerEmployee) */}
+                    {/* progress (doneCount / maxEmails) */}
                     {(() => {
-                      const done = Number(item.doneCount ?? 0);
-                      const target = Number(item.maxEmails ?? 0);
+                      const done = Number(t.doneCount ?? 0);
+                      const target = Number(t.maxEmails ?? 0);
                       const pct = Math.max(0, Math.min(100, target ? Math.round((done / target) * 100) : 0));
                       return (
                         <div>
@@ -1171,7 +1255,7 @@ export default function Dashboard() {
                       <span>Expires</span>
                       <span
                         className={
-                          getTimeLeft(item.createdAt, item.expireIn).expired ? "text-gray-400" : "text-blue-600"
+                          getTimeLeft(t.createdAt, t.expireIn).expired ? "text-gray-400" : "text-blue-600"
                         }
                       >
                         {label}
@@ -1181,13 +1265,10 @@ export default function Dashboard() {
 
                   <CardFooter className="p-4 pt-0">
                     {(() => {
-                      const expired = getTimeLeft(item.createdAt, item.expireIn).expired;
-                      if (item.isCompleted === 1) {
-                        // Completed: no action
-                        return null;
-                      }
-                      if (!expired) {
-                        const hasProgress = (item.isPartial === 1) || (Number(item.doneCount ?? 0) > 0);
+                      const expiredTask = getTimeLeft(t.createdAt, t.expireIn).expired;
+                      if (t.isCompleted === 1) return null;
+                      if (!expiredTask) {
+                        const hasProgress = (t.isPartial === 1) || (Number(t.doneCount ?? 0) > 0);
                         return (
                           <div className="w-full flex sm:justify-end">
                             <Button
@@ -1195,21 +1276,19 @@ export default function Dashboard() {
                               size="sm"
                               onClick={() =>
                                 openEmailTask({
-                                  _id: item._id,
-                                  createdAt: item.createdAt,
-                                  expireIn: item.expireIn,
-                                  isLatest: item.isLatest,
-                                  platform: item.platform,
-                                  targetUser: item.targetUser,
-                                  targetPerEmployee: item.targetPerEmployee,
-                                  amountPerPerson: item.amountPerPerson,
-                                  maxEmails: item.maxEmails,
+                                  _id: t._id,
+                                  createdAt: t.createdAt,
+                                  expireIn: t.expireIn,
+                                  isLatest: t.isLatest,
+                                  platform: t.platform,
+                                  targetUser: t.targetUser,
+                                  targetPerEmployee: t.targetPerEmployee,
+                                  amountPerPerson: t.amountPerPerson,
+                                  maxEmails: t.maxEmails,
                                   createdBy: "",
-
-                                  // pass through NEW fields too
-                                  isCompleted: item.isCompleted ?? 0,
-                                  isPartial: item.isPartial ?? 0,
-                                  doneCount: item.doneCount ?? 0,
+                                  isCompleted: t.isCompleted ?? 0,
+                                  isPartial: t.isPartial ?? 0,
+                                  doneCount: t.doneCount ?? 0,
                                 } as EmailTaskItem)
                               }
                             >
@@ -1229,7 +1308,7 @@ export default function Dashboard() {
         </section>
       </main>
 
-      {/* Add Entry Dialog (Links - unchanged) */}
+      {/* Add Entry Dialog (Links) */}
       <Dialog
         open={modalOpen}
         onOpenChange={(open) => {
