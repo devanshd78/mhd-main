@@ -110,33 +110,33 @@ interface EmailTaskItem {
 }
 
 // Include the new fields in the MergedItem `task` variant as well
- type MergedItem =
+type MergedItem =
   | {
-      kind: "link";
-      _id: string;
-      createdAt: string;
-      expireIn: number;
-      isLatest?: boolean;
-      title: string;
-      target?: number;
-      amount?: number;
-      isCompleted: number;
-    }
+    kind: "link";
+    _id: string;
+    createdAt: string;
+    expireIn: number;
+    isLatest?: boolean;
+    title: string;
+    target?: number;
+    amount?: number;
+    isCompleted: number;
+  }
   | {
-      kind: "task";
-      _id: string;
-      createdAt: string;
-      expireIn: number;
-      isLatest?: boolean;
-      platform: string;
-      targetUser?: string | number;
-      targetPerEmployee: number;
-      amountPerPerson: number;
-      maxEmails: number;
-      isCompleted: number; // 0 | 1
-      isPartial?: number; // 0 | 1
-      doneCount?: number; // number completed by user
-    };
+    kind: "task";
+    _id: string;
+    createdAt: string;
+    expireIn: number;
+    isLatest?: boolean;
+    platform: string;
+    targetUser?: string | number;
+    targetPerEmployee: number;
+    amountPerPerson: number;
+    maxEmails: number;
+    isCompleted: number; // 0 | 1
+    isPartial?: number; // 0 | 1
+    doneCount?: number; // number completed by user
+  };
 
 interface UserProfile {
   _id: string;
@@ -812,8 +812,8 @@ export default function Dashboard() {
           <p><b>Reply 2:</b> ${escapeHtml(replies[1] || "—")}</p>
           <p><b>Amount will be paid:</b> ₹${escapeHtml(String(en.totalAmount))}</p>
           <p><b>Date:</b> ${escapeHtml(new Date(en.createdAt).toLocaleString('en-US', {
-            day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
-          }))}</p>
+        day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      }))}</p>
         </div>
       `;
 
@@ -954,7 +954,7 @@ export default function Dashboard() {
       <td style="padding:6px 8px;border-bottom:1px solid #eee;">${handle || "—"}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;">${email || "—"}</td>
       <td style=\"padding:6px 8px;border-bottom:1px solid #eee;text-transform:capitalize;\">${text}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #eee;">${reason ? String(reason).replace(/</g,"&lt;").replace(/>/g,"&gt;") : "—"}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;">${reason ? String(reason).replace(/</g, "&lt;").replace(/>/g, "&gt;") : "—"}</td>
     </tr>
   `;
       }).join("");
@@ -1144,9 +1144,15 @@ export default function Dashboard() {
                     </CardContent>
 
                     <CardFooter className="p-4 pt-0">
-                      {item.isCompleted === 0 && item.isLatest && !expired && (
+                      {/* user can add entry for ANY non-expired, non-completed production */}
+                      {item.isCompleted === 0 && !expired && (
                         <div className="w-full flex flex-col sm:flex-row gap-2 sm:justify-end">
-                          <Button variant="outline" className="w-full sm:w-auto" size="sm" onClick={() => handleCopy((item as any).title)}>
+                          <Button
+                            variant="outline"
+                            className="w-full sm:w-auto"
+                            size="sm"
+                            onClick={() => handleCopy((item as any).title)}
+                          >
                             <ClipboardCopyIcon className="h-4 w-4 mr-1" /> Copy
                           </Button>
                           <Button
