@@ -23,6 +23,10 @@ interface LinkItem {
   target: number
   amount: number
   expireIn: number
+
+  minComments?: number
+  minReplies?: number
+  requireLike?: boolean
 }
 
 export default function LinkHistory() {
@@ -51,6 +55,23 @@ export default function LinkHistory() {
   const [creatingLink, setCreatingLink] = useState(false)
   const [linkSuccess, setLinkSuccess] = useState<string | null>(null)
 
+  // ✅ Verification Rules (0–2)
+  const [minComments, setMinComments] = useState<'0' | '1' | '2'>('2')
+  const [minReplies, setMinReplies] = useState<'0' | '1' | '2'>('2')
+  const [requireLike, setRequireLike] = useState(false)
+  const [ruleError, setRuleError] = useState<string>('')
+
+  const resetModal = () => {
+    setLinkTitle('')
+    setTarget('')
+    setAmount('')
+    setExpireIn('')
+    setMinComments('2')
+    setMinReplies('2')
+    setRequireLike(false)
+    setRuleError('')
+  }
+
   // fetch existing links
   useEffect(() => {
     async function fetchLinks() {
@@ -66,22 +87,41 @@ export default function LinkHistory() {
     fetchLinks()
   }, [])
 
-  // create link handler
   const handleCreateLink = () => {
     setCreatingLink(true)
     setLinkSuccess(null)
+    setRuleError('')
 
     const adminId = localStorage.getItem('adminId') || ''
 
+    const rules = {
+      minComments: Number(minComments),
+      minReplies: Number(minReplies),
+      requireLike: !!requireLike,
+    }
+
+    // 🚫 block invalid rules (0/0)
+    if (rules.minComments === 0 && rules.minReplies === 0) {
+      setRuleError('Min Comments and Min Replies cannot both be 0.')
+      setCreatingLink(false)
+      return
+    }
+
     api
       .post<{ link: string }>('/admin/links', {
-        title: linkTitle, adminId,
-        target: Number(target), amount: Number(amount), expireIn: Number(expireIn)
+        title: linkTitle,
+        adminId,
+        target: Number(target),
+        amount: Number(amount),
+        expireIn: Number(expireIn),
+
+        // ✅ NEW
+        ...rules,
       })
       .then((res) => {
         setLinkSuccess(res.data.link)
-        setLinkTitle('')
         setIsOpen(false)
+        resetModal()
         return api.get<LinkItem[]>('/admin/links', { withCredentials: true })
       })
       .then((res) => {
@@ -163,7 +203,10 @@ export default function LinkHistory() {
         />
 
         <div className="flex items-center space-x-2">
-          <Dialog open={isOpen} onOpenChange={setIsOpen}>
+          <Dialog open={isOpen} onOpenChange={(open) => {
+            setIsOpen(open)
+            if (!open) resetModal()
+          }}>
             <DialogTrigger asChild>
               <Button variant="outline" className="flex items-center space-x-2">
                 <PlusIcon className="h-4 w-4" />
@@ -212,17 +255,88 @@ export default function LinkHistory() {
                 )}
               </div>
 
+              {/* ✅ Verification Rules */}
+              <div className="border rounded-xl p-3 bg-gray-50">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">Verification Rules</p>
+                  <span className="text-xs text-gray-500">0–2 only</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Min Comments</label>
+                    <select
+                      className="w-full rounded border px-3 py-2"
+                      value={minComments}
+                      onChange={(e) => setMinComments(e.target.value as '0' | '1' | '2')}
+                      disabled={creatingLink}
+                    >
+                      <option value="0">0</option>
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Min Replies</label>
+                    <select
+                      className="w-full rounded border px-3 py-2"
+                      value={minReplies}
+                      onChange={(e) => setMinReplies(e.target.value as '0' | '1' | '2')}
+                      disabled={creatingLink}
+                    >
+                      <option value="0">0</option>
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Require Like</label>
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="checkbox"
+                        checked={requireLike}
+                        onChange={(e) => setRequireLike(e.target.checked)}
+                        disabled={creatingLink}
+                      />
+                      <span className="text-sm text-gray-700">Yes</span>
+                    </div>
+                  </div>
+                </div>
+
+                {(Number(minComments) === 0 && Number(minReplies) === 0) && (
+                  <p className="text-xs text-red-600 mt-2">
+                    Min Comments and Min Replies cannot both be 0.
+                  </p>
+                )}
+
+                {!!ruleError && (
+                  <p className="text-xs text-red-600 mt-2">{ruleError}</p>
+                )}
+              </div>
+
               <DialogFooter>
                 <Button
                   variant="ghost"
-                  onClick={() => setIsOpen(false)}
+                  onClick={() => {
+                    setIsOpen(false)
+                    resetModal()
+                  }}
                   disabled={creatingLink}
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleCreateLink}
-                  disabled={!linkTitle || !target || !amount || creatingLink || !expireIn}
+                  disabled={
+                    !linkTitle ||
+                    !target ||
+                    !amount ||
+                    !expireIn ||
+                    creatingLink ||
+                    (Number(minComments) === 0 && Number(minReplies) === 0)
+                  }
                 >
                   {creatingLink ? 'Creating…' : 'Create Link'}
                 </Button>
@@ -265,6 +379,9 @@ export default function LinkHistory() {
               <tr key={link._id}>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <p className="font-medium">{link.title}</p>
+                  <p className="text-xs text-gray-500">
+                    Rules: C≥{link.minComments ?? 2}, R≥{link.minReplies ?? 2}, Like={String(link.requireLike ?? false)}
+                  </p>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                   {getCreatedAt(link._id)}

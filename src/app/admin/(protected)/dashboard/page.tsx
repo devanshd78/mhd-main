@@ -58,6 +58,11 @@ interface LinkEntry {
   target: number
   amount: number
   expireIn: number
+
+  minComments?: number
+  minReplies?: number
+  requireLike?: boolean
+
   userEntries?: UserEntry[]
 }
 
@@ -105,12 +110,18 @@ const AdminDashboardPage: React.FC = () => {
   const [linkAmount, setLinkAmount] = useState('')
   const [expireIn, setExpireIn] = useState('')
   const [creatingLink, setCreatingLink] = useState(false)
+  // Link verification rules
+  const [minComments, setMinComments] = useState<'0' | '1' | '2'>('2');
+  const [minReplies, setMinReplies] = useState<'0' | '1' | '2'>('2');
+  const [requireLike, setRequireLike] = useState<boolean>(false);
+
+  const [linkRuleErrors, setLinkRuleErrors] = useState<{ rules?: string }>({});
 
   /* NEW: New Email Task modal */
   const [emailTaskOpen, setEmailTaskOpen] = useState(false)
   const [emailTargetUser, setEmailTargetUser] = useState('')
   const [emailTargetPerEmployee, setEmailTargetPerEmployee] = useState('')
-  const [emailErrors, setEmailErrors] = useState<{platform?: string; amountPerPerson?: string; maxEmails?: string; expireIn?: string; targetPerEmployee?: string}>({})
+  const [emailErrors, setEmailErrors] = useState<{ platform?: string; amountPerPerson?: string; maxEmails?: string; expireIn?: string; targetPerEmployee?: string }>({})
   const [emailPlatform, setEmailPlatform] = useState<'Instagram' | 'TikTok' | 'YouTube'>('YouTube')
   const [emailAmountPerPerson, setEmailAmountPerPerson] = useState('')
   const [emailMaxCount, setEmailMaxCount] = useState('')
@@ -163,26 +174,56 @@ const AdminDashboardPage: React.FC = () => {
     }
   }, [searchTerm, employees])
 
-  /* Create shareable link */
   const handleCreateLink = () => {
-    setCreatingLink(true)
-    setError('')
-    const adminId = localStorage.getItem('adminId') || ''
+    setCreatingLink(true);
+    setError('');
+    setLinkRuleErrors({});
+
+    const adminId = localStorage.getItem('adminId') || '';
+
+    const rules = {
+      minComments: Number(minComments),
+      minReplies: Number(minReplies),
+      requireLike: !!requireLike,
+    };
+
+    // Safety: prevent 0/0
+    if (rules.minComments === 0 && rules.minReplies === 0) {
+      setLinkRuleErrors({ rules: 'minComments and minReplies cannot both be 0.' });
+      setCreatingLink(false);
+      return;
+    }
+
     api
-      .post<{ link: string }>('/admin/links', {
+      .post('/admin/links', {
         title: linkTitle,
         adminId,
         target: Number(linkTarget),
         amount: Number(linkAmount),
         expireIn: Number(expireIn),
+
+        // ✅ NEW FIELDS
+        ...rules,
       })
       .then(() => {
-        setUploadOpen(false)
-        router.push('/admin/link-history')
+        setUploadOpen(false);
+
+        // reset fields
+        setLinkTitle('');
+        setLinkTarget('');
+        setLinkAmount('');
+        setExpireIn('');
+        setMinComments('2');
+        setMinReplies('2');
+        setRequireLike(false);
+
+        Swal.fire('Created', 'Link task created successfully.', 'success');
+        router.push('/admin/link-history');
       })
       .catch(() => setError('Failed to create link.'))
-      .finally(() => setCreatingLink(false))
-  }
+      .finally(() => setCreatingLink(false));
+  };
+
 
   /* NEW: Create Email Task */
   const handleCreateEmailTask = () => {
@@ -443,7 +484,13 @@ const AdminDashboardPage: React.FC = () => {
     </div>
   )
 
-  const linkFormValid = !!linkTitle && !!linkTarget && !!linkAmount && !!expireIn
+  const linkFormValid =
+    !!linkTitle &&
+    !!linkTarget &&
+    !!linkAmount &&
+    !!expireIn &&
+    !(Number(minComments) === 0 && Number(minReplies) === 0);
+
   const emailFormValid = !!emailTargetPerEmployee && !!emailAmountPerPerson && !!emailMaxCount && !!emailExpireIn
 
   return (
@@ -527,6 +574,65 @@ const AdminDashboardPage: React.FC = () => {
               onChange={e => setExpireIn(e.target.value)}
               className="w-full mt-4"
             />
+
+            {/* ✅ Verification Rules */}
+            <div className="mt-4 border rounded-xl p-4 bg-gray-50">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold text-sm">Verification Rules</p>
+                <span className="text-xs text-gray-500">0–2 only</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Min Comments</label>
+                  <select
+                    className="w-full rounded border px-3 py-2"
+                    value={minComments}
+                    onChange={(e) => setMinComments(e.target.value as '0' | '1' | '2')}
+                  >
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium mb-1">Min Replies</label>
+                  <select
+                    className="w-full rounded border px-3 py-2"
+                    value={minReplies}
+                    onChange={(e) => setMinReplies(e.target.value as '0' | '1' | '2')}
+                  >
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium mb-1">Require Like</label>
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="checkbox"
+                      checked={requireLike}
+                      onChange={(e) => setRequireLike(e.target.checked)}
+                    />
+                    <span className="text-sm text-gray-700">Yes</span>
+                  </div>
+                </div>
+              </div>
+
+              {(Number(minComments) === 0 && Number(minReplies) === 0) && (
+                <p className="text-xs text-red-600 mt-2">
+                  Min Comments and Min Replies cannot both be 0.
+                </p>
+              )}
+
+              {linkRuleErrors.rules && (
+                <p className="text-xs text-red-600 mt-2">{linkRuleErrors.rules}</p>
+              )}
+            </div>
+
             <DialogFooter>
               <DialogClose asChild>
                 <Button variant="ghost">Cancel</Button>

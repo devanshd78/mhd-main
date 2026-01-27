@@ -104,7 +104,7 @@ export default function LinkEntriesPage() {
 
   // analysis modal (only used for new response)
   const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [analysisData, setAnalysisData] = useState<any>(null);
+  const [analysisData, setAnalysisData] = useState<Screenshot["analysis"] | null>(null);
   const [analysisForId, setAnalysisForId] = useState<string>("");
 
   const isNewPayload = useMemo(
@@ -116,8 +116,8 @@ export default function LinkEntriesPage() {
   useEffect(() => {
     if (!employeeId) return;
     api.get(`/employee/balance?employeeId=${employeeId}`)
-      .then(() => {})
-      .catch(() => {});
+      .then(() => { })
+      .catch(() => { });
   }, [employeeId]);
 
   // fetch
@@ -157,7 +157,7 @@ export default function LinkEntriesPage() {
 
   const handleEditPersons = async () => {
     if (!editingEntry) return;
-    if (editPersons < 1 || (editingEntry.noOfPersons!==undefined && editPersons>editingEntry.noOfPersons)) {
+    if (editPersons < 1 || (editingEntry.noOfPersons !== undefined && editPersons > editingEntry.noOfPersons)) {
       setEditError(`Value must be between 1 and ${editingEntry.noOfPersons}`);
       return;
     }
@@ -179,20 +179,20 @@ export default function LinkEntriesPage() {
   const handleApprove = async (id: string, approve: number) => {
     try {
       await api.post("/entry/updateStatus", { entryId: id, approve }, { withCredentials: true });
-      Swal.fire({ toast:true, position:"top-end", icon:"success", title:"Status updated", showConfirmButton:false, timer:1500, timerProgressBar:true });
+      Swal.fire({ toast: true, position: "top-end", icon: "success", title: "Status updated", showConfirmButton: false, timer: 1500, timerProgressBar: true });
       fetchEntries(page);
-    } catch (err:any) {
-      Swal.fire({ toast:true, position:"top-end", icon:"error", title: err.response?.data?.error||"Update failed", showConfirmButton:false, timer:1500, timerProgressBar:true });
+    } catch (err: any) {
+      Swal.fire({ toast: true, position: "top-end", icon: "error", title: err.response?.data?.error || "Update failed", showConfirmButton: false, timer: 1500, timerProgressBar: true });
     }
   };
 
-  const Pager = () => pages>1? (
+  const Pager = () => pages > 1 ? (
     <div className="flex items-center justify-center gap-4 py-4">
-      <Button size="sm" variant="outline" disabled={page===1} onClick={()=>fetchEntries(page-1)}>Prev</Button>
+      <Button size="sm" variant="outline" disabled={page === 1} onClick={() => fetchEntries(page - 1)}>Prev</Button>
       <span className="text-sm">Page {page} of {pages}</span>
-      <Button size="sm" variant="outline" disabled={page===pages} onClick={()=>fetchEntries(page+1)}>Next</Button>
+      <Button size="sm" variant="outline" disabled={page === pages} onClick={() => fetchEntries(page + 1)}>Next</Button>
     </div>
-  ): null;
+  ) : null;
 
   const openAnalysis = (s: Screenshot | undefined) => {
     if (!s) return;
@@ -207,11 +207,11 @@ export default function LinkEntriesPage() {
     <div className="p-8 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold">Entries for Link</h2>
-        <Button variant="outline" onClick={()=>router.push("/employee/dashboard")}>Go Home</Button>
+        <Button variant="outline" onClick={() => router.push("/employee/dashboard")}>Go Home</Button>
       </div>
 
       {/* Edit Modal */}
-      {editingEntry?.type===1 && (
+      {editingEntry?.type === 1 && (
         <Dialog open={showEdit} onOpenChange={setShowEdit}>
           <DialogPortal>
             <DialogOverlay className="fixed inset-0 bg-black/50" />
@@ -225,19 +225,19 @@ export default function LinkEntriesPage() {
                     min={1}
                     max={editingEntry.noOfPersons}
                     value={editPersons}
-                    onChange={(e:ChangeEvent<HTMLInputElement>)=>{
-                      const v=Number(e.target.value); setEditPersons(v);
-                      if(editingEntry.noOfPersons!==undefined && v>editingEntry.noOfPersons) setEditError(`Value cannot exceed ${editingEntry.noOfPersons}`);
-                      else if(v<1) setEditError('Value must be at least 1'); else setEditError('');
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                      const v = Number(e.target.value); setEditPersons(v);
+                      if (editingEntry.noOfPersons !== undefined && v > editingEntry.noOfPersons) setEditError(`Value cannot exceed ${editingEntry.noOfPersons}`);
+                      else if (v < 1) setEditError('Value must be at least 1'); else setEditError('');
                     }}
                   />
                   {editError && <p className="text-red-600 text-sm mt-1">{editError}</p>}
                 </div>
-                <div className="text-sm">Total = <strong>₹{(editingEntry.linkAmount||0)*editPersons}</strong></div>
+                <div className="text-sm">Total = <strong>₹{(editingEntry.linkAmount || 0) * editPersons}</strong></div>
               </div>
               <DialogFooter className="flex justify-end space-x-2 mt-6">
-                <Button size="sm" variant="outline" onClick={()=>setShowEdit(false)} disabled={isSavingEdit}>Cancel</Button>
-                <Button size="sm" onClick={handleEditPersons} disabled={isSavingEdit||Boolean(editError)}>{isSavingEdit?"Saving…":"Save"}</Button>
+                <Button size="sm" variant="outline" onClick={() => setShowEdit(false)} disabled={isSavingEdit}>Cancel</Button>
+                <Button size="sm" onClick={handleEditPersons} disabled={isSavingEdit || Boolean(editError)}>{isSavingEdit ? "Saving…" : "Save"}</Button>
               </DialogFooter>
             </DialogContent>
           </DialogPortal>
@@ -252,7 +252,7 @@ export default function LinkEntriesPage() {
             <DialogContent className="fixed top-1/2 left-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 bg-white p-6 rounded-2xl shadow-lg">
               <DialogHeader><DialogTitle>Update History</DialogTitle></DialogHeader>
               <div className="space-y-2 max-h-60 overflow-y-auto">
-                {historyEntry.history?.map(item=> (
+                {historyEntry.history?.map(item => (
                   <div key={item._id} className="p-2 border rounded">
                     <div className="text-sm font-medium">{item.field}</div>
                     <div className="text-xs">from {item.from} to {item.to}</div>
@@ -261,7 +261,7 @@ export default function LinkEntriesPage() {
                 ))}
               </div>
               <DialogFooter className="flex justify-end mt-4">
-                <Button size="sm" variant="outline" onClick={()=>setShowHistory(false)}>Close</Button>
+                <Button size="sm" variant="outline" onClick={() => setShowHistory(false)}>Close</Button>
               </DialogFooter>
             </DialogContent>
           </DialogPortal>
@@ -275,17 +275,102 @@ export default function LinkEntriesPage() {
           onClick={() => setAnalysisOpen(false)}
         >
           <div
-            className="bg-white rounded-2xl shadow-lg max-w-2xl w-full p-4"
+            className="bg-white rounded-2xl shadow-lg max-w-2xl w-full p-5"
             onClick={(e) => e.stopPropagation()}
           >
-            <pre className="mt-2 bg-gray-50 border rounded p-3 text-xs overflow-x-auto">
-              {analysisData ? JSON.stringify(analysisData, null, 2) : "—"}
-            </pre>
-            <div className="flex items-center justify-end mt-2">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold">Verification Details</h3>
+                <p className="text-xs text-gray-500">
+                  Screenshot ID: {analysisForId ? shortId(analysisForId) : "—"}
+                </p>
+              </div>
               <Button size="sm" variant="outline" onClick={() => setAnalysisOpen(false)}>
                 Close
               </Button>
             </div>
+
+            {(() => {
+              const handle = analysisData?.user_id || "—";
+              const liked = !!analysisData?.liked;
+
+              const comments = Array.isArray(analysisData?.comment) ? analysisData!.comment! : [];
+              const replies = Array.isArray(analysisData?.replies) ? analysisData!.replies! : [];
+
+              const verified = !!analysisData?.verified;
+
+              return (
+                <>
+                  {/* Summary cards */}
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="border rounded-xl p-3 bg-gray-50">
+                      <div className="text-xs text-gray-500">Detected handle</div>
+                      <div className="mt-1 font-semibold break-all">{handle}</div>
+                    </div>
+
+                    <div className="border rounded-xl p-3 bg-gray-50">
+                      <div className="text-xs text-gray-500">Result</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        {verified ? (
+                          <Badge className="bg-green-600 text-white">Verified</Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-yellow-400">Not verified</Badge>
+                        )}
+                        <span className="text-sm text-gray-700">
+                          Liked: <b>{liked ? "Yes" : "No"}</b>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="border rounded-xl p-3 bg-gray-50">
+                      <div className="text-xs text-gray-500">Comments found</div>
+                      <div className="mt-1 font-semibold">{comments.length}</div>
+                    </div>
+
+                    <div className="border rounded-xl p-3 bg-gray-50">
+                      <div className="text-xs text-gray-500">Replies found</div>
+                      <div className="mt-1 font-semibold">{replies.length}</div>
+                    </div>
+                  </div>
+
+                  {/* Details */}
+                  <div className="mt-4 space-y-4 max-h-[55vh] overflow-y-auto pr-1">
+                    <div>
+                      <div className="text-sm font-semibold">Comments</div>
+                      {comments.length ? (
+                        <ul className="mt-2 space-y-2">
+                          {comments.map((c, i) => (
+                            <li key={i} className="border rounded-lg p-2 bg-white">
+                              <div className="text-xs text-gray-500 mb-1">Comment {i + 1}</div>
+                              <div className="text-sm text-gray-800 break-words">{c}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-1 text-sm text-gray-500">—</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="text-sm font-semibold">Replies</div>
+                      {replies.length ? (
+                        <ul className="mt-2 space-y-2">
+                          {replies.map((r, i) => (
+                            <li key={i} className="border rounded-lg p-2 bg-white">
+                              <div className="text-xs text-gray-500 mb-1">Reply {i + 1}</div>
+                              <div className="text-sm text-gray-800 break-words">{r}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-1 text-sm text-gray-500">—</p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -305,7 +390,7 @@ export default function LinkEntriesPage() {
                   <TableRow>
                     <TH>Name</TH>
                     <TH>UPI ID</TH>
-                    {subs[0]?.type===1 ? <>
+                    {subs[0]?.type === 1 ? <>
                       <TH>Telegram</TH>
                       <TH>Status</TH>
                       <TH className="text-center">Persons</TH>
@@ -322,10 +407,10 @@ export default function LinkEntriesPage() {
                     <TableRow key={s.entryId}>
                       <TableCell>{s.name}</TableCell>
                       <TableCell>{s.upiId}</TableCell>
-                      {s.type===1 ? <>
+                      {s.type === 1 ? <>
                         <TableCell>
                           <a
-                            href={s.telegramLink?.startsWith('http')?s.telegramLink:`https://t.me/${s.telegramLink}`}
+                            href={s.telegramLink?.startsWith('http') ? s.telegramLink : `https://t.me/${s.telegramLink}`}
                             target="_blank" rel="noreferrer"
                             className="text-blue-600 hover:underline"
                           >
@@ -333,32 +418,32 @@ export default function LinkEntriesPage() {
                           </a>
                         </TableCell>
                         <TableCell>
-                          {s.status===1
+                          {s.status === 1
                             ? <Badge className="bg-green-600 text-white">Approved</Badge>
-                            : s.status===0
-                            ? <Badge variant="destructive" className="bg-red-600">Rejected</Badge>
-                            : <Badge variant="outline" className="bg-yellow-400">Pending</Badge>}
+                            : s.status === 0
+                              ? <Badge variant="destructive" className="bg-red-600">Rejected</Badge>
+                              : <Badge variant="outline" className="bg-yellow-400">Pending</Badge>}
                         </TableCell>
                         <TableCell className="text-center">{s.noOfPersons}</TableCell>
                         <TableCell className="text-center">₹{s.linkAmount}</TableCell>
                         <TableCell className="text-center">₹{s.totalAmount}</TableCell>
                         <TableCell>
                           {s.isUpdated ? (
-                            <Button size="sm" variant="outline" onClick={()=>startHistoryView(s)}>View</Button>
+                            <Button size="sm" variant="outline" onClick={() => startHistoryView(s)}>View</Button>
                           ) : ('-')}
                         </TableCell>
-                      </> : <TableCell className="truncate max-w-[200px]">{s.notes||'-'}</TableCell>}
+                      </> : <TableCell className="truncate max-w-[200px]">{s.notes || '-'}</TableCell>}
                       <TableCell className="text-right whitespace-nowrap">{format(new Date(s.createdAt), 'PPpp')}</TableCell>
                       <TableCell className="text-right align-top">
                         <div className="flex flex-col items-end space-y-2">
-                          {s.type===1 ? (
-                            <Button size="sm" variant="outline" onClick={()=>startEditTypeOne(s)}>Update Entry</Button>
+                          {s.type === 1 ? (
+                            <Button size="sm" variant="outline" onClick={() => startEditTypeOne(s)}>Update Entry</Button>
                           ) : (
                             <Button size="sm" variant="outline">Edit</Button>
                           )}
                           <div className="flex space-x-2">
-                            <Button size="sm" variant="default" onClick={()=>handleApprove(s.entryId,1)}>Approve</Button>
-                            <Button size="sm" variant="destructive" onClick={()=>handleApprove(s.entryId,0)}>Reject</Button>
+                            <Button size="sm" variant="default" onClick={() => handleApprove(s.entryId, 1)}>Approve</Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleApprove(s.entryId, 0)}>Reject</Button>
                           </div>
                         </div>
                       </TableCell>
@@ -399,11 +484,11 @@ export default function LinkEntriesPage() {
                         <TableCell>{s.upiId}</TableCell>
 
                         <TableCell>
-                          {s.status===1
+                          {s.status === 1
                             ? <Badge className="bg-green-600 text-white">Approved</Badge>
-                            : s.status===0
-                            ? <Badge variant="destructive" className="bg-red-600">Rejected</Badge>
-                            : <Badge variant="outline" className="bg-yellow-400">Pending</Badge>}
+                            : s.status === 0
+                              ? <Badge variant="destructive" className="bg-red-600">Rejected</Badge>
+                              : <Badge variant="outline" className="bg-yellow-400">Pending</Badge>}
                         </TableCell>
 
                         <TableCell className="text-center">{s.linkAmount != null ? `₹${s.linkAmount}` : '—'}</TableCell>
@@ -417,11 +502,20 @@ export default function LinkEntriesPage() {
 
                         <TableCell>
                           {ss?.analysis ? (
-                            <div className="flex flex-wrap items-center gap-3 text-sm text-gray-700">
-                              <span>Liked: <b>{ss.analysis.liked ? 'Yes' : 'No'}</b></span>
-                              <span>Comments: <b>{Array.isArray(ss.analysis.comment) ? ss.analysis.comment.length : 0}</b></span>
-                              <span>Replies: <b>{Array.isArray(ss.analysis.replies) ? ss.analysis.replies.length : 0}</b></span>
-                              <Button size="sm" variant="outline" onClick={()=>openAnalysis(ss)}>View Details</Button>
+                            <div className="flex flex-col gap-2 text-sm text-gray-700">
+                              <div className="flex flex-wrap items-center gap-3">
+                                <span>Handle: <b className="break-all">{ss.analysis.user_id || "—"}</b></span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-3">
+                                <span>Liked: <b>{ss.analysis.liked ? "Yes" : "No"}</b></span>
+                                <span>Comments: <b>{Array.isArray(ss.analysis.comment) ? ss.analysis.comment.length : 0}</b></span>
+                                <span>Replies: <b>{Array.isArray(ss.analysis.replies) ? ss.analysis.replies.length : 0}</b></span>
+                              </div>
+                              <div>
+                                <Button size="sm" variant="outline" onClick={() => openAnalysis(ss)}>
+                                  View Details
+                                </Button>
+                              </div>
                             </div>
                           ) : <span className="text-gray-400">—</span>}
                         </TableCell>
@@ -433,8 +527,8 @@ export default function LinkEntriesPage() {
                         <TableCell className="text-right align-top">
                           <div className="flex flex-col items-end space-y-2">
                             <div className="flex space-x-2">
-                              <Button size="sm" variant="default" onClick={()=>handleApprove(s.entryId,1)}>Approve</Button>
-                              <Button size="sm" variant="destructive" onClick={()=>handleApprove(s.entryId,0)}>Reject</Button>
+                              <Button size="sm" variant="default" onClick={() => handleApprove(s.entryId, 1)}>Approve</Button>
+                              <Button size="sm" variant="destructive" onClick={() => handleApprove(s.entryId, 0)}>Reject</Button>
                             </div>
                           </div>
                         </TableCell>

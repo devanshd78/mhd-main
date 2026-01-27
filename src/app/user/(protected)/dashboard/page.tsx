@@ -88,6 +88,9 @@ interface LinkItem {
   createdAt: string;
   expireIn?: number; // hours
   isCompleted: number; // 0 | 1
+  minComments?: number;   // 0..2
+  minReplies?: number;    // 0..2
+  requireLike?: boolean;
 }
 
 // Add these fields to the EmailTaskItem interface
@@ -121,6 +124,10 @@ type MergedItem =
     target?: number;
     amount?: number;
     isCompleted: number;
+
+    minComments?: number;
+    minReplies?: number;
+    requireLike?: boolean;
   }
   | {
     kind: "task";
@@ -277,11 +284,21 @@ const buildErrorToast = (err: unknown) => {
       break;
     case "VERIFICATION_FAILED": {
       const d = data.details || {};
-      const need = d.needed
-        ? `Need: liked=${String(d.needed.liked)}, comments≥${d.needed.minComments}, replies≥${d.needed.minReplies}`
-        : "";
-      const got = `Detected → liked=${String(d.liked)}, comments=${d.commentCount}, replies=${d.replyCount}`;
-      text = [need, got].filter(Boolean).join(" | ") || "Could not verify the screenshots.";
+      const needed = d.needed || {};
+
+      const need = `Need: likeRequired=${String(needed.requireLike)}, comments≥${needed.minComments}, replies≥${needed.minReplies}`;
+      const got = `Detected → liked=${String(d.liked)}, comments=${d.commentCount}, replies=${d.replyCount}, handle=${String(d.user_id || "—")}`;
+
+      // show handle variants if debug exists
+      const dbg = d.debug || {};
+      const ch = Array.isArray(dbg.comment_handles) ? dbg.comment_handles : [];
+      const rh = Array.isArray(dbg.reply_handles) ? dbg.reply_handles : [];
+      const variants =
+        (ch.length || rh.length)
+          ? `Handles found → comments: ${ch.slice(0, 6).join(", ") || "—"} | replies: ${rh.slice(0, 6).join(", ") || "—"}`
+          : "";
+
+      text = [need, got, variants].filter(Boolean).join(" | ");
       icon = "warning";
       break;
     }
@@ -330,6 +347,35 @@ const buildErrorToast = (err: unknown) => {
   }
 
   return { icon, title, text };
+};
+
+type LinkRules = { minComments: number; minReplies: number; requireLike: boolean };
+
+const clamp02 = (v: any, def: number) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(0, Math.min(2, Math.floor(n)));
+};
+
+const getLinkRules = (link: LinkItem | null): LinkRules => {
+  // fallback defaults if API doesn’t send rules
+  const minComments = clamp02((link as any)?.minComments, 2);
+  const minReplies = clamp02((link as any)?.minReplies, 2);
+  const requireLike = Boolean((link as any)?.requireLike ?? false);
+
+  // Safety: do not allow both 0/0
+  if (minComments === 0 && minReplies === 0) return { minComments: 2, minReplies: 2, requireLike };
+  return { minComments, minReplies, requireLike };
+};
+
+const requiredKeysForRules = (rules: LinkRules): ImageKey[] => {
+  const req: ImageKey[] = [];
+  if (rules.requireLike) req.push("like");
+  if (rules.minComments >= 1) req.push("comment1");
+  if (rules.minComments >= 2) req.push("comment2");
+  if (rules.minReplies >= 1) req.push("reply1");
+  if (rules.minReplies >= 2) req.push("reply2");
+  return req;
 };
 
 /* ===================== Frontend Compression ===================== */
@@ -448,16 +494,14 @@ async function compressImageFile(file: File, opts = COMPRESS): Promise<File> {
   return new File([blob], asWebpName(file.name), { type: opts.type });
 }
 
-/** Compress the fixed 5 screenshots map, preserving keys. */
-async function compressFixedImages(
+async function compressPresentImages(
   input: Record<ImageKey, File | null>,
   opts = COMPRESS
-): Promise<Record<ImageKey, File>> {
-  const out = {} as Record<ImageKey, File>;
-  for (const key of IMAGE_KEYS) {
-    const f = input[key];
-    if (!f) throw new Error(`Missing file: ${key}`);
-    out[key] = await compressImageFile(f, opts);
+): Promise<Partial<Record<ImageKey, File>>> {
+  const out: Partial<Record<ImageKey, File>> = {};
+  const keys = IMAGE_KEYS.filter((k) => !!input[k]);
+  for (const key of keys) {
+    out[key] = await compressImageFile(input[key] as File, opts);
   }
   return out;
 }
@@ -752,26 +796,42 @@ export default function Dashboard() {
     setImages((prev) => ({ ...prev, [key]: file }));
   };
 
-  const validateImages = () => {
-    const missing: ImageKey[] = IMAGE_KEYS.filter((k) => !images[k]);
+  const validateImages = (rules: LinkRules) => {
+    const required = requiredKeysForRules(rules);
+
+    const missing: ImageKey[] = required.filter((k) => !images[k]);
+
     const errors: string[] = [];
     for (const k of IMAGE_KEYS) {
       if (imageErrors[k]) errors.push(`${k}: ${imageErrors[k]}`);
     }
-    return { ok: missing.length === 0 && errors.length === 0, missing, errors };
+
+    return { ok: missing.length === 0 && errors.length === 0, missing, errors, required };
   };
+
 
   const handleEntrySubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!selectedLink || !userProfile) return;
 
-    const { ok, missing, errors } = validateImages();
+    const rules = getLinkRules(selectedLink);
+    const { ok, missing, errors, required } = validateImages(rules);
+
     if (!ok) {
-      const lines = [missing.length ? `Missing: ${missing.join(", ")}` : "", ...errors].filter(Boolean);
+      const lines = [
+        missing.length ? `Missing required: ${missing.join(", ")}` : "",
+        ...errors
+      ].filter(Boolean);
+
       Swal.fire({
-        toast: true, position: "top-end", icon: "warning",
-        title: "Please fix the upload issues", text: lines.join(" | "),
-        showConfirmButton: false, timer: 2200, timerProgressBar: true,
+        toast: true,
+        position: "top-end",
+        icon: "warning",
+        title: "Please fix the upload issues",
+        text: lines.join(" | "),
+        showConfirmButton: false,
+        timer: 2600,
+        timerProgressBar: true,
       });
       return;
     }
@@ -784,16 +844,20 @@ export default function Dashboard() {
     form.append("type", String(1));
     form.append("worksUnder", worksUnder);
 
-    // compress all 5 before appending
-    const compressed = await compressFixedImages(images);
-    IMAGE_KEYS.forEach((key) => {
-      const f = compressed[key];
-      form.append(key, f, f.name); // will be image/webp under 10MB
+    // ✅ Compress only what user uploaded (required + optional)
+    const compressedMap = await compressPresentImages(images);
+    (Object.entries(compressedMap) as [ImageKey, File][]).forEach(([key, f]) => {
+      form.append(key, f, f.name);
     });
 
     try {
       setSubmitting(true);
-      const res = await api.post<SubmitEntryResponse>("/entry/user", form, {
+
+      // Optional: turn on debug via env
+      const debug = process.env.NEXT_PUBLIC_VERIFY_DEBUG === "1";
+      const url = debug ? "/entry/user?debug=1" : "/entry/user";
+
+      const res = await api.post<SubmitEntryResponse>(url, form, {
         withCredentials: true,
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -802,23 +866,28 @@ export default function Dashboard() {
       const comments = Array.isArray(v.comment) ? v.comment : [];
       const replies = Array.isArray(v.replies) ? v.replies : [];
 
+      const likeLine = rules.requireLike
+        ? `<p><b>Liked:</b> ${v.liked ? "Yes ✅" : "No ❌"}</p>`
+        : `<p><b>Liked:</b> Not required</p>`;
+
       const html = `
-        <div style="text-align:left">
-          <p><b>Handle:</b> ${escapeHtml(v.user_id || "—")}</p>
-          <p><b>Liked:</b> ${v.liked ? "Yes ✅" : "No ❌"}</p>
-          <p><b>Comment 1:</b> ${escapeHtml(comments[0] || "—")}</p>
-          <p><b>Comment 2:</b> ${escapeHtml(comments[1] || "—")}</p>
-          <p><b>Reply 1:</b> ${escapeHtml(replies[0] || "—")}</p>
-          <p><b>Reply 2:</b> ${escapeHtml(replies[1] || "—")}</p>
-          <p><b>Amount will be paid:</b> ₹${escapeHtml(String(en.totalAmount))}</p>
-          <p><b>Date:</b> ${escapeHtml(new Date(en.createdAt).toLocaleString('en-US', {
-        day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      <div style="text-align:left">
+        <p><b>Handle:</b> ${escapeHtml(v.user_id || "—")}</p>
+        ${likeLine}
+        ${rules.minComments >= 1 ? `<p><b>Comment 1:</b> ${escapeHtml(comments[0] || "—")}</p>` : ""}
+        ${rules.minComments >= 2 ? `<p><b>Comment 2:</b> ${escapeHtml(comments[1] || "—")}</p>` : ""}
+        ${rules.minReplies >= 1 ? `<p><b>Reply 1:</b> ${escapeHtml(replies[0] || "—")}</p>` : ""}
+        ${rules.minReplies >= 2 ? `<p><b>Reply 2:</b> ${escapeHtml(replies[1] || "—")}</p>` : ""}
+        <p><b>Amount will be paid:</b> ₹${escapeHtml(String(en.totalAmount))}</p>
+        <p><b>Date:</b> ${escapeHtml(new Date(en.createdAt).toLocaleString("en-US", {
+        day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
       }))}</p>
-        </div>
-      `;
+      </div>
+    `;
 
       setModalOpen(false);
-      await Swal.fire({ icon: "success", title: escapeHtml("Verified"), html, confirmButtonText: "OK", width: 600 });
+      await Swal.fire({ icon: "success", title: "Verified", html, confirmButtonText: "OK", width: 600 });
+
       fetchLinks();
       fetchEmailTasks();
       setSelectedLink(null);
@@ -826,7 +895,16 @@ export default function Dashboard() {
       setEntryName("");
     } catch (err) {
       const { icon, title, text } = buildErrorToast(err);
-      Swal.fire({ toast: true, position: "top-end", icon, title, text, showConfirmButton: false, timer: 3200, timerProgressBar: true });
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon,
+        title,
+        text,
+        showConfirmButton: false,
+        timer: 3600,
+        timerProgressBar: true,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -1041,6 +1119,9 @@ export default function Dashboard() {
       target: l.target,
       amount: l.amount,
       isCompleted: l.isCompleted,
+      minComments: l.minComments,
+      minReplies: l.minReplies,
+      requireLike: l.requireLike,
     }));
 
     const taskItems: MergedItem[] = safeTasks.map((t) => ({
@@ -1066,7 +1147,9 @@ export default function Dashboard() {
 
   const anyLoading = loadingLinks || loadingTasks;
   const anyError = errorLinks || errorTasks;
-
+  const rules = getLinkRules(selectedLink);
+  const requiredKeys = requiredKeysForRules(rules);
+  const isRequired = (k: ImageKey) => requiredKeys.includes(k);
   /* ===================== Render ===================== */
 
   if (anyLoading) return <div className="flex justify-center items-center h-[60vh] text-sm">Loading...</div>;
@@ -1101,6 +1184,8 @@ export default function Dashboard() {
               const { expired, label } = getTimeLeft(item.createdAt, (item as any).expireIn || 0);
 
               if (item.kind === "link") {
+
+                const linkRules = getLinkRules(item as any);
                 return (
                   <Card
                     key={`link-${item._id}`}
@@ -1141,6 +1226,22 @@ export default function Dashboard() {
                         <span>Expires</span>
                         <span className={expired ? "text-gray-400" : "text-green-600"}>{label}</span>
                       </div>
+
+                      <div className="mt-2 border-t pt-2 space-y-1">
+                        <div className="flex justify-between">
+                          <span>Like</span>
+                          <span className="font-medium">{linkRules.requireLike ? "Required" : "Not required"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Comments</span>
+                          <span className="font-medium">Min {linkRules.minComments}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Replies</span>
+                          <span className="font-medium">Min {linkRules.minReplies}</span>
+                        </div>
+                      </div>
+
                     </CardContent>
 
                     <CardFooter className="p-4 pt-0">
@@ -1368,7 +1469,7 @@ export default function Dashboard() {
                   {IMAGE_KEYS.map((key) => (
                     <div key={key} className="border rounded-xl p-3 bg-gray-50 hover:bg-gray-100 transition-colors">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-semibold capitalize">
+                        <span className="text-sm font-semibold capitalize flex items-center gap-2">
                           {key === "like"
                             ? "Like"
                             : key === "comment1"
@@ -1378,6 +1479,11 @@ export default function Dashboard() {
                                 : key === "reply1"
                                   ? "Reply 1"
                                   : "Reply 2"}
+                          {isRequired(key) && (
+                            <span className="text-[10px] px-2 py-[2px] rounded-full border bg-white">
+                              Required
+                            </span>
+                          )}
                         </span>
                         {images[key] && (
                           <button
@@ -1413,7 +1519,6 @@ export default function Dashboard() {
                           type="file"
                           accept="image/*"
                           onChange={(e: ChangeEvent<HTMLInputElement>) => onImageChange(key, e.target.files)}
-                          required
                           className="file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:bg-white file:hover:bg-gray-50 file:text-sm"
                           aria-label={`Upload ${key}`}
                         />
