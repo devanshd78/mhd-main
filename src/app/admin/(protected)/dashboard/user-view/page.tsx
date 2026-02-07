@@ -33,7 +33,7 @@ interface UserEntry {
   telegramLink?: string;
   status?: number | null;
   createdAt: string;
-  screenshotId?: string;     // for joining with screenshots
+  screenshotId?: string; // join key
   linkTitle?: string;
   user?: {
     userId: string;
@@ -54,13 +54,28 @@ interface ApiResponse {
   };
 }
 
+type ActionKind = "comment" | "reply";
+
+interface ScreenshotAction {
+  kind: ActionKind;
+  videoId: string;
+  commentId: string;
+  parentId: string | null;
+  permalink: string;
+  text: string | null;
+  authorChannelId: string | null;
+  publishedAt: string | null;
+}
+
 interface ScreenshotRow {
   screenshotId: string;
   userId: string;
-  linkId?: string;
+  linkId: string;
   verified: boolean;
-  analysis?: any;
+  videoId: string;
+  channelId: string;
   createdAt: string;
+  actions: ScreenshotAction[];
 }
 
 interface ScreenshotsResponse {
@@ -70,7 +85,8 @@ interface ScreenshotsResponse {
   totalScreenshots: number;
   page: number;
   pages: number;
-  entries: UserEntry[]; // merged entries in same payload
+  entries: UserEntry[];
+  totalEntries: number;
 }
 
 /* ----------------------- Helpers ----------------------- */
@@ -85,6 +101,20 @@ function formatINR(n?: number | null) {
   return `₹${n}`;
 }
 
+function safeUrl(url?: string | null) {
+  if (!url) return null;
+  const u = String(url).trim();
+  if (!u) return null;
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  return null;
+}
+
+function splitActions(actions: ScreenshotAction[] = []) {
+  const comments = actions.filter((a) => a.kind === "comment");
+  const replies = actions.filter((a) => a.kind === "reply");
+  return { comments, replies };
+}
+
 /* ----------------------- Component ----------------------- */
 export default function UserEntriesPage() {
   const params = useSearchParams();
@@ -92,12 +122,12 @@ export default function UserEntriesPage() {
 
   const linkId = params.get("linkid");
   const empId = params.get("empid");
-  const ssIdParam = params.get("ssId"); // 👈 toggle to screenshots mode if present
+  const ssIdParam = params.get("ssId"); // if present => screenshots mode
   const isScreenshotsMode = useMemo(() => Boolean(ssIdParam), [ssIdParam]);
 
   const [title, setTitle] = useState("");
 
-  // Entries state (for non-ss mode)
+  // Entries state (non-screenshots mode)
   const [entries, setEntries] = useState<UserEntry[]>([]);
   const [totals, setTotals] = useState({
     totalUsers: 0,
@@ -105,24 +135,23 @@ export default function UserEntriesPage() {
     totalAmountPaid: 0,
   });
 
-  // Screenshots state (ss mode)
+  // Screenshots state (screenshots mode)
   const [shots, setShots] = useState<ScreenshotRow[]>([]);
   const [shotsPage, setShotsPage] = useState(1);
   const [shotsPages, setShotsPages] = useState(1);
   const [shotsTotal, setShotsTotal] = useState(0);
-  const [verifiedOnly, setVerifiedOnly] = useState<null | boolean>(null); // filter: null=all, true, false
-  const [ssEntries, setSsEntries] = useState<UserEntry[]>([]); // entries coming from /admin/ssLink
+  const [verifiedOnly, setVerifiedOnly] = useState<null | boolean>(null);
+  const [ssEntries, setSsEntries] = useState<UserEntry[]>([]);
 
   // Shared loading & error
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Analysis modal
-  const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [analysisData, setAnalysisData] = useState<any>(null);
-  const [analysisForId, setAnalysisForId] = useState<string>("");
+  // Details modal (comments & replies only)
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsShot, setDetailsShot] = useState<ScreenshotRow | null>(null);
 
-  // Map screenshotId -> entry (for amounts/status)
+  // Map screenshotId -> entry (for amount/status/user label)
   const entryByShotId = useMemo(() => {
     const map: Record<string, UserEntry> = {};
     for (const e of ssEntries) {
@@ -132,11 +161,28 @@ export default function UserEntriesPage() {
   }, [ssEntries]);
 
   // Total Paid in screenshots mode (derive from ssEntries)
-  const ssTotalPaid = useMemo(
-    () =>
-      ssEntries.reduce((sum, e) => sum + (typeof e.totalAmount === "number" ? e.totalAmount : 0), 0),
-    [ssEntries]
-  );
+  const ssTotalPaid = useMemo(() => {
+    return ssEntries.reduce(
+      (sum, e) => sum + (typeof e.totalAmount === "number" ? e.totalAmount : 0),
+      0
+    );
+  }, [ssEntries]);
+
+  const ssTotals = useMemo(() => {
+    let comments = 0;
+    let replies = 0;
+    for (const s of shots) {
+      const sp = splitActions(s.actions || []);
+      comments += sp.comments.length;
+      replies += sp.replies.length;
+    }
+    return { comments, replies };
+  }, [shots]);
+
+  // Reset page when filter changes
+  useEffect(() => {
+    if (isScreenshotsMode) setShotsPage(1);
+  }, [verifiedOnly, isScreenshotsMode]);
 
   useEffect(() => {
     if (!linkId || !empId) return;
@@ -145,7 +191,6 @@ export default function UserEntriesPage() {
     setError("");
 
     if (isScreenshotsMode) {
-      // ---------------------- Screenshots API (merged) ----------------------
       const body: any = {
         linkId,
         employeeId: empId,
@@ -157,9 +202,11 @@ export default function UserEntriesPage() {
       if (typeof verifiedOnly === "boolean") body.verified = verifiedOnly;
 
       api
-        .post<ScreenshotsResponse>(SCREENSHOTS_BY_LINK_ENDPOINT, body)
+        .post<ScreenshotsResponse>(SCREENSHOTS_BY_LINK_ENDPOINT, body, {
+          withCredentials: true,
+        })
         .then((res) => {
-          setTitle(res.data.linkTitle);
+          setTitle(res.data.linkTitle || "");
           setShots(res.data.screenshots || []);
           setShotsPage(res.data.page);
           setShotsPages(res.data.pages);
@@ -171,13 +218,16 @@ export default function UserEntriesPage() {
         })
         .finally(() => setLoading(false));
     } else {
-      // ---------------------- Entries API (existing) ----------------------
       api
-        .post<ApiResponse>("/admin/links/user-entries", { linkId, employeeId: empId })
+        .post<ApiResponse>(
+          "/admin/links/user-entries",
+          { linkId, employeeId: empId },
+          { withCredentials: true }
+        )
         .then((res) => {
-          setTitle(res.data.title);
-          setEntries(res.data.entries);
-          setTotals(res.data.totals);
+          setTitle(res.data.title || "");
+          setEntries(res.data.entries || []);
+          setTotals(res.data.totals || { totalUsers: 0, totalPersons: 0, totalAmountPaid: 0 });
         })
         .catch((err) => {
           setError(err.response?.data?.error || "Failed to load user entries.");
@@ -191,22 +241,44 @@ export default function UserEntriesPage() {
     return <p className="p-8 text-center text-red-600">Missing link or employee ID.</p>;
   }
 
-  const openAnalysis = (s: ScreenshotRow) => {
-    setAnalysisForId(s.screenshotId);
-    setAnalysisData(s.analysis || null);
-    setAnalysisOpen(true);
+  const openDetails = (s: ScreenshotRow) => {
+    setDetailsShot(s);
+    setDetailsOpen(true);
   };
 
   const resetAndBack = () => router.back();
 
+  const linkUrl = safeUrl(title);
+
   return (
-    <div className="p-8 max-w mx-auto space-y-6 bg-gray-50 rounded-lg shadow-md">
+    <div className="p-6 sm:p-8 max-w-6xl mx-auto space-y-6 bg-gray-50 rounded-lg">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-2xl font-semibold">
-          {isScreenshotsMode ? "Screenshots for:" : "User Entries for:"} {title}
-        </h1>
-        <div className="flex items-center gap-2">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold">
+            {isScreenshotsMode ? "Screenshots for:" : "User Entries for:"}{" "}
+            {linkUrl ? (
+              <a
+                href={linkUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-blue-600 hover:underline break-all"
+              >
+                {title}
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            ) : (
+              <span className="break-all">{title}</span>
+            )}
+          </h1>
+          {isScreenshotsMode && (
+            <p className="text-xs text-gray-500">
+              Showing only <b>comments & replies</b> from screenshot actions.
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
           {isScreenshotsMode && (
             <>
               <Button
@@ -241,7 +313,7 @@ export default function UserEntriesPage() {
       ) : isScreenshotsMode ? (
         /* --------------------------- SCREENSHOTS UI --------------------------- */
         <>
-          {/* Summary (now includes Total Paid derived from entries) */}
+          {/* Summary */}
           <div className="flex flex-wrap gap-6 bg-white p-4 rounded shadow">
             <div>
               <div className="text-sm text-gray-500">Total Screenshots</div>
@@ -250,6 +322,14 @@ export default function UserEntriesPage() {
             <div>
               <div className="text-sm text-gray-500">Total Paid</div>
               <div className="text-xl font-medium">{formatINR(ssTotalPaid)}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Total Comments</div>
+              <div className="text-xl font-medium">{ssTotals.comments}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Total Replies</div>
+              <div className="text-xl font-medium">{ssTotals.replies}</div>
             </div>
             {typeof verifiedOnly === "boolean" && (
               <div>
@@ -274,15 +354,21 @@ export default function UserEntriesPage() {
                       <TH className="px-4 py-2 text-right">Amt/Person</TH>
                       <TH className="px-4 py-2 text-right">Total Paid</TH>
                       <TH className="px-4 py-2 text-center">Status</TH>
-                      <TH className="px-4 py-2 text-left">Analysis</TH>
+                      <TH className="px-4 py-2 text-center">Comments</TH>
+                      <TH className="px-4 py-2 text-center">Replies</TH>
+                      <TH className="px-4 py-2 text-left">Details</TH>
                       <TH className="px-4 py-2 text-right">Submitted</TH>
                     </TableRow>
                   </TableHeader>
+
                   <TableBody className="bg-white divide-y divide-gray-200">
                     {shots.map((s) => {
                       const linked = entryByShotId[s.screenshotId];
-                      const userLabel = linked?.user?.name || linked?.name || s.userId || "—";
+                      const userLabel =
+                        linked?.user?.name || linked?.name || s.userId || "—";
                       const submittedAt = linked?.createdAt || s.createdAt;
+
+                      const { comments, replies } = splitActions(s.actions || []);
 
                       return (
                         <TableRow key={s.screenshotId} className="hover:bg-gray-50">
@@ -296,7 +382,9 @@ export default function UserEntriesPage() {
                             {s.verified ? (
                               <Badge className="bg-green-600 text-white">Yes</Badge>
                             ) : (
-                              <Badge variant="outline" className="bg-yellow-400">No</Badge>
+                              <Badge variant="outline" className="bg-yellow-400">
+                                No
+                              </Badge>
                             )}
                           </TableCell>
 
@@ -310,42 +398,30 @@ export default function UserEntriesPage() {
 
                           <TableCell className="px-4 py-3 text-center">
                             {linked?.status === 1 ? (
-                              <Badge className="bg-green-600">Approved</Badge>
+                              <Badge className="bg-green-600 text-white">Approved</Badge>
                             ) : linked?.status === 0 ? (
-                              <Badge variant="destructive" className="bg-red-600">Rejected</Badge>
+                              <Badge variant="destructive" className="bg-red-600">
+                                Rejected
+                              </Badge>
                             ) : (
-                              <Badge variant="outline" className="bg-yellow-400">Pending</Badge>
+                              <Badge variant="outline" className="bg-yellow-400">
+                                Pending
+                              </Badge>
                             )}
                           </TableCell>
 
+                          <TableCell className="px-4 py-3 text-center">
+                            <b>{comments.length}</b>
+                          </TableCell>
+
+                          <TableCell className="px-4 py-3 text-center">
+                            <b>{replies.length}</b>
+                          </TableCell>
+
                           <TableCell className="px-4 py-3">
-                            {s.analysis ? (
-                              <div className="flex items-center gap-2 text-sm text-gray-700">
-                                <span className="mr-2">
-                                  Liked: <b>{s.analysis.liked ? "Yes" : "No"}</b>
-                                </span>
-                                <span className="mr-2">
-                                  Verified: <b>{s.analysis.verified ? "Yes" : "No"}</b>
-                                </span>
-                                <span className="mr-2">
-                                  Comments:{" "}
-                                  <b>
-                                    {Array.isArray(s.analysis.comment) ? s.analysis.comment.length : 0}
-                                  </b>
-                                </span>
-                                <span className="mr-2">
-                                  Replies:{" "}
-                                  <b>
-                                    {Array.isArray(s.analysis.replies) ? s.analysis.replies.length : 0}
-                                  </b>
-                                </span>
-                                <Button size="sm" variant="outline" onClick={() => openAnalysis(s)}>
-                                  View JSON
-                                </Button>
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">—</span>
-                            )}
+                            <Button size="sm" variant="outline" onClick={() => openDetails(s)}>
+                              View
+                            </Button>
                           </TableCell>
 
                           <TableCell className="px-4 py-3 text-right whitespace-nowrap">
@@ -385,25 +461,133 @@ export default function UserEntriesPage() {
             </div>
           )}
 
-          {/* Analysis JSON Modal (simple) */}
-          {analysisOpen && (
+          {/* Details Modal (ONLY Comments & Replies) */}
+          {detailsOpen && detailsShot && (
             <div
               className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-              onClick={() => setAnalysisOpen(false)}
+              onClick={() => setDetailsOpen(false)}
             >
               <div
-                className="bg-white rounded-2xl shadow-lg max-w-2xl w-full p-4"
+                className="bg-white rounded-2xl shadow-lg max-w-3xl w-full p-5"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-lg font-semibold">Analysis — {shortId(analysisForId, 8, 6)}</h2>
-                  <Button size="sm" variant="outline" onClick={() => setAnalysisOpen(false)}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold">
+                      Actions — {shortId(detailsShot.screenshotId, 8, 6)}
+                    </h2>
+                    <p className="text-xs text-gray-500 break-all">
+                      Video: {detailsShot.videoId} • Channel: {detailsShot.channelId}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => setDetailsOpen(false)}>
                     Close
                   </Button>
                 </div>
-                <pre className="mt-2 bg-gray-50 border rounded p-3 text-xs overflow-x-auto">
-                  {analysisData ? JSON.stringify(analysisData, null, 2) : "—"}
-                </pre>
+
+                {(() => {
+                  const { comments, replies } = splitActions(detailsShot.actions || []);
+                  return (
+                    <>
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        {detailsShot.verified ? (
+                          <Badge className="bg-green-600 text-white">Verified</Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-yellow-400">
+                            Not verified
+                          </Badge>
+                        )}
+                        <span className="text-sm text-gray-700">
+                          Comments: <b>{comments.length}</b>
+                        </span>
+                        <span className="text-sm text-gray-700">
+                          Replies: <b>{replies.length}</b>
+                        </span>
+                      </div>
+
+                      <div className="mt-4 space-y-5 max-h-[60vh] overflow-y-auto pr-1">
+                        {/* Comments */}
+                        <div>
+                          <div className="text-sm font-semibold">Comments</div>
+                          {comments.length ? (
+                            <ul className="mt-2 space-y-2">
+                              {comments.map((c, i) => (
+                                <li key={`${c.commentId}-${i}`} className="border rounded-lg p-3 bg-white">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="text-xs text-gray-500">
+                                      Comment {i + 1} • ID: {shortId(c.commentId, 10, 6)}
+                                    </div>
+                                    {safeUrl(c.permalink) && (
+                                      <a
+                                        href={c.permalink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"
+                                      >
+                                        Open <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    )}
+                                  </div>
+                                  <div className="mt-2 text-sm text-gray-800 break-words">
+                                    {c.text || "—"}
+                                  </div>
+                                  <div className="mt-2 text-xs text-gray-500">
+                                    {c.publishedAt
+                                      ? format(new Date(c.publishedAt), "PPpp")
+                                      : "—"}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-1 text-sm text-gray-500">—</p>
+                          )}
+                        </div>
+
+                        {/* Replies */}
+                        <div>
+                          <div className="text-sm font-semibold">Replies</div>
+                          {replies.length ? (
+                            <ul className="mt-2 space-y-2">
+                              {replies.map((r, i) => (
+                                <li key={`${r.commentId}-${i}`} className="border rounded-lg p-3 bg-white">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="text-xs text-gray-500">
+                                      Reply {i + 1} • ID: {shortId(r.commentId, 10, 6)}
+                                    </div>
+                                    {safeUrl(r.permalink) && (
+                                      <a
+                                        href={r.permalink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"
+                                      >
+                                        Open <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    )}
+                                  </div>
+                                  <div className="mt-1 text-xs text-gray-500">
+                                    Parent: {r.parentId ? shortId(r.parentId, 10, 6) : "—"}
+                                  </div>
+                                  <div className="mt-2 text-sm text-gray-800 break-words">
+                                    {r.text || "—"}
+                                  </div>
+                                  <div className="mt-2 text-xs text-gray-500">
+                                    {r.publishedAt
+                                      ? format(new Date(r.publishedAt), "PPpp")
+                                      : "—"}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-1 text-sm text-gray-500">—</p>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -411,7 +595,6 @@ export default function UserEntriesPage() {
       ) : (
         /* --------------------------- ENTRIES UI (original) --------------------------- */
         <>
-          {/* Totals Bar */}
           <div className="flex flex-wrap gap-4 bg-white p-4 rounded shadow">
             <div>
               <div className="text-sm text-gray-500">Total Users</div>
@@ -427,7 +610,6 @@ export default function UserEntriesPage() {
             </div>
           </div>
 
-          {/* Entries Table */}
           <Card className="overflow-auto">
             <CardContent className="p-0">
               <Table className="min-w-full divide-y divide-gray-200">
@@ -456,9 +638,9 @@ export default function UserEntriesPage() {
                         {e.totalAmount != null ? `₹${e.totalAmount}` : "—"}
                       </TableCell>
                       <TableCell className="px-4 py-3 text-center">
-                        {e.telegramLink ? (
+                        {safeUrl(e.telegramLink) ? (
                           <a
-                            href={e.telegramLink}
+                            href={e.telegramLink!}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center text-blue-600 hover:underline"
@@ -472,9 +654,7 @@ export default function UserEntriesPage() {
                       </TableCell>
                       <TableCell className="px-4 py-3 text-center">
                         {e.status === 1 ? (
-                          <Badge variant="default" className="bg-green-600">
-                            Approved
-                          </Badge>
+                          <Badge className="bg-green-600 text-white">Approved</Badge>
                         ) : e.status === 0 ? (
                           <Badge variant="destructive" className="bg-red-600">
                             Rejected
