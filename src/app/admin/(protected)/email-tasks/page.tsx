@@ -24,6 +24,18 @@ import {
 import { Loader2, Search, ChevronDown, ChevronUp, Eye, Plus } from 'lucide-react'
 import { format } from 'date-fns'
 import api from '@/lib/axios'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Badge } from '@/components/ui/badge'
+import { Check, ChevronsUpDown, X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 // Types mirrored from your backend selection
 interface EmailTaskRow {
@@ -38,6 +50,14 @@ interface EmailTaskRow {
   expiresAt: string
   createdAt: string
   status: 'active' | 'expired'
+}
+
+// ---- NEW: Country type from /admin/countries ----
+interface Country {
+  name: string
+  alpha2: string
+  alpha3: string
+  numeric: string
 }
 
 interface ListResponse {
@@ -90,7 +110,7 @@ const AdminEmailTaskListPage: React.FC = () => {
   const [active, setActive] = useState('') // '', 'true', 'false'
   const [sortBy, setSortBy] = useState<SortKey>('createdAt')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
-
+  const [countryOpen, setCountryOpen] = useState(false)
   // Admin ID from localStorage
   const adminId = useMemo(() => {
     if (typeof window === 'undefined') return ''
@@ -108,6 +128,13 @@ const AdminEmailTaskListPage: React.FC = () => {
   const [cExpireIn, setCExpireIn] = useState('')
   const [createError, setCreateError] = useState('')
 
+  // ---- NEW: Countries state ----
+  const [countries, setCountries] = useState<Country[]>([])
+  const [countriesLoading, setCountriesLoading] = useState(false)
+  const [countriesError, setCountriesError] = useState('')
+  const [countrySearch, setCountrySearch] = useState('')
+  const [cCountries, setCCountries] = useState<string[]>([]) // store alpha2 codes
+
   const resetCreateForm = () => {
     setCPlatform('YouTube')
     setCTargetUser('')
@@ -115,16 +142,69 @@ const AdminEmailTaskListPage: React.FC = () => {
     setCAmountPerPerson('')
     setCMaxEmails('')
     setCExpireIn('')
+    setCCountries([])
+    setCountrySearch('')
     setCreateError('')
   }
+
+const fetchCountries = async () => {
+  try {
+    setCountriesLoading(true)
+    setCountriesError('')
+
+    const res = await api.get('/admin/countries')
+
+    // support: [..] OR { countries: [..] } OR { data: [..] }
+    const list =
+      (Array.isArray(res.data) && res.data) ||
+      (Array.isArray((res.data as any)?.countries) && (res.data as any).countries) ||
+      (Array.isArray((res.data as any)?.data) && (res.data as any).data) ||
+      []
+
+    setCountries(list)
+  } catch (e: any) {
+    setCountriesError(e?.response?.data?.error || 'Failed to load countries.')
+    setCountries([])
+  } finally {
+    setCountriesLoading(false)
+  }
+}
+
+  useEffect(() => {
+      fetchCountries()
+  }, [])
+
+const toggleCountry = (alpha2: string) => {
+  const code = (alpha2 || '').toLowerCase()
+  setCCountries(prev =>
+    prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+  )
+}
+
+const selectedCountryNames = useMemo(() => {
+  const map = new Map(countries.map(c => [c.alpha2.toLowerCase(), c.name]))
+  return cCountries.map(code => map.get(code) || code)
+}, [countries, cCountries])
+
+  const filteredCountries = useMemo(() => {
+    const q = countrySearch.trim().toLowerCase()
+    if (!q) return countries
+    return countries.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.alpha2.toLowerCase().includes(q) ||
+      c.alpha3.toLowerCase().includes(q) ||
+      c.numeric.toLowerCase().includes(q)
+    )
+  }, [countries, countrySearch])
 
   const validateCreate = () => {
     if (!adminId) return 'Missing adminId (not found in localStorage).'
     if (!cPlatform.trim()) return 'Platform is required.'
+    if (cCountries.length === 0) return 'Select at least one country.'
     if (Number(cTargetPerEmployee) < 0) return 'Target per employee must be ≥ 0.'
     if (Number(cAmountPerPerson) < 0) return 'Amount per person must be ≥ 0.'
     if (Number(cMaxEmails) < 0) return 'Max emails must be ≥ 0.'
-    if ( Number(cExpireIn) < 1) return 'Expire (hrs) must be ≥ 1.'
+    if (Number(cExpireIn) < 1) return 'Expire (hrs) must be ≥ 1.'
     return ''
   }
 
@@ -141,6 +221,7 @@ const AdminEmailTaskListPage: React.FC = () => {
       const payload: any = {
         adminId,
         platform: cPlatform,
+        countries: cCountries, // <-- alpha2 list (e.g., ["IN","US"])
         targetPerEmployee: Number(cTargetPerEmployee),
         amountPerPerson: Number(cAmountPerPerson),
         maxEmails: Number(cMaxEmails),
@@ -152,7 +233,6 @@ const AdminEmailTaskListPage: React.FC = () => {
       setOpenCreate(false)
       resetCreateForm()
       setNotice('Email task created.')
-      // refresh to page 1 to surface the new task
       await fetchData({ page: 1 })
     } catch (e: any) {
       const em = e?.response?.data?.error || e?.message || 'Failed to create task.'
@@ -350,11 +430,10 @@ const AdminEmailTaskListPage: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            t.status === 'active'
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${t.status === 'active'
                               ? 'bg-green-100 text-green-800'
                               : 'bg-gray-200 text-gray-700'
-                          }`}
+                            }`}
                         >
                           {t.status}
                         </span>
@@ -404,6 +483,109 @@ const AdminEmailTaskListPage: React.FC = () => {
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
+            </div>
+
+            {/* ---- Countries selector using Command (searchable) ---- */}
+            <div className="grid gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs text-muted-foreground">Countries</label>
+                <span className="text-[11px] text-muted-foreground">
+                  Selected: {cCountries.length}
+                </span>
+              </div>
+
+              {countriesLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground border rounded px-3 py-2">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading countries...
+                </div>
+              ) : countriesError ? (
+                <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+                  {countriesError}{' '}
+                  <button className="underline" type="button" onClick={fetchCountries}>
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <>
+<Popover open={countryOpen} onOpenChange={setCountryOpen}>
+  <PopoverTrigger asChild>
+    <Button
+      type="button"
+      variant="outline"
+      role="combobox"
+      aria-expanded={countryOpen}
+      className="w-full justify-between"
+    >
+      {cCountries.length === 0
+        ? 'Select countries...'
+        : `${selectedCountryNames[0]}${cCountries.length > 1 ? ` +${cCountries.length - 1}` : ''}`}
+      <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+    </Button>
+  </PopoverTrigger>
+
+  {/* IMPORTANT: z-index higher than Dialog overlay */}
+  <PopoverContent className="z-[200] w-full p-0 sm:w-[420px]" align="start">
+    <Command>
+      <CommandInput placeholder="Search country (name / alpha2 / alpha3)..." />
+      <CommandList className="max-h-60 overflow-y-auto">
+        <CommandEmpty>No country found.</CommandEmpty>
+
+        <CommandGroup heading="Countries">
+          {cCountries.length > 0 && (
+            <CommandItem
+              value="__clear__"
+              onSelect={() => setCCountries([])}
+              className="text-red-600"
+            >
+              Clear selection
+            </CommandItem>
+          )}
+
+          {countries.map((c) => {
+            const code = c.alpha2.toLowerCase()
+            const checked = cCountries.includes(code)
+
+            return (
+              <CommandItem
+                key={c.alpha2}
+                value={`${c.name} ${c.alpha2} ${c.alpha3} ${c.numeric}`}
+                onSelect={() => toggleCountry(c.alpha2)}
+              >
+                <Check className={cn('mr-2 h-4 w-4', checked ? 'opacity-100' : 'opacity-0')} />
+                <span className="flex-1">{c.name}</span>
+                <span className="text-xs text-muted-foreground">{c.alpha2}</span>
+              </CommandItem>
+            )
+          })}
+        </CommandGroup>
+      </CommandList>
+    </Command>
+  </PopoverContent>
+</Popover>
+
+                  {/* Selected country chips */}
+                  {cCountries.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {cCountries.map((code) => {
+                        const name = countries.find((x) => x.alpha2 === code)?.name || code
+                        return (
+                          <Badge key={code} variant="secondary" className="gap-1">
+                            {name} ({code})
+                            <button
+                              type="button"
+                              onClick={() => toggleCountry(code)}
+                              className="ml-1 rounded hover:opacity-70"
+                              aria-label={`Remove ${name}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        )
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             <div className="grid gap-1.5">
@@ -468,7 +650,7 @@ const AdminEmailTaskListPage: React.FC = () => {
             <Button variant="outline" onClick={() => setOpenCreate(false)} disabled={creating}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} disabled={creating}>
+            <Button onClick={handleCreate} disabled={creating || countriesLoading}>
               {creating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Create Task
             </Button>
