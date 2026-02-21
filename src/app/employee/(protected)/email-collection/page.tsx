@@ -16,18 +16,49 @@ import { post } from '@/lib/axios';
 
 export type Platform = 'youtube' | 'instagram' | 'tiktok' | 'twitter' | 'facebook' | 'other' | string;
 
+/* ==============================
+   Types (UPDATED as per response)
+   ============================== */
+
+type CountryOption = { value: string; label?: string };
+
+interface YoutubeInfo {
+  channelId?: string;
+  title?: string;
+  handle?: string;
+  urlByHandle?: string;
+  urlById?: string;
+  description?: string;
+  country?: string;
+  subscriberCount?: number;
+  videoCount?: number;
+  viewCount?: number;
+  topicCategories?: string[];
+  topicCategoryLabels?: string[];
+  fetchedAt?: string;
+}
+
 export interface RosterEmail {
   emailMasked: string;
   handle: string;
   platform: Platform;
   createdAt?: string;
+
+  // ✅ NEW (from API)
+  followerCount?: number;
+  country?: string | null;
+  categories?: string[];
+  youtube?: YoutubeInfo | null;
 }
 
 export interface RosterUser {
   userId: string;
   name: string | null;
   doneCount: number;
-  status: 'completed' | 'partial';
+
+  // ✅ can be "performing" too (based on totals + real data)
+  status: 'completed' | 'partial' | 'performing' | string;
+
   emails: RosterEmail[];
   paid?: boolean;
 }
@@ -38,10 +69,16 @@ export interface TaskSummary {
   targetPerEmployee: number;
   amountPerPerson: number;
   maxEmails: number;
-  expireIn: number; // in hours
+  expireIn: number; // hours
   createdAt: string;
   expiresAt: string;
-  status: 'active' | 'expired';
+  status: 'active' | 'expired' | string;
+
+  // ✅ NEW (task criteria)
+  minFollowers?: number;
+  maxFollowers?: number;
+  countries?: CountryOption[];
+  categories?: string[];
 }
 
 export interface RosterResponse {
@@ -60,11 +97,7 @@ export interface RosterResponse {
 
 const PAY_API = '/employee/pay';
 
-const toast = (
-  icon: 'success' | 'error' | 'info' | 'warning',
-  title: string,
-  text?: string
-) =>
+const toast = (icon: 'success' | 'error' | 'info' | 'warning', title: string, text?: string) =>
   Swal.fire({
     toast: true,
     position: 'top-end',
@@ -104,18 +137,60 @@ const getTimeLeft = (createdAt: string, expireIn: number, expiresAt?: string) =>
   const now = new Date();
   const diff = expiryDate.getTime() - now.getTime();
 
-  if (diff <= 0) {
-    return { expired: true, time: 'Expired', hoursLeft: 0, expiryDate } as const;
-  }
+  if (diff <= 0) return { expired: true, time: 'Expired', hoursLeft: 0, expiryDate } as const;
+
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
   return {
     expired: false,
     time: `${hours}h ${minutes}m ${seconds}s`,
     hoursLeft: hours + minutes / 60,
     expiryDate,
   } as const;
+};
+
+const fmtNum = (n?: number) =>
+  typeof n === 'number' && Number.isFinite(n) ? new Intl.NumberFormat('en-IN').format(n) : '-';
+
+const fmtFollowersRange = (min?: number, max?: number) => {
+  const hasMin = typeof min === 'number' && Number.isFinite(min);
+  const hasMax = typeof max === 'number' && Number.isFinite(max);
+  if (!hasMin && !hasMax) return 'Any';
+  if (hasMin && hasMax) return `${fmtNum(min)} - ${fmtNum(max)}`;
+  if (hasMin) return `≥ ${fmtNum(min)}`;
+  return `≤ ${fmtNum(max)}`;
+};
+
+const fmtCountriesShort = (arr?: CountryOption[]) => {
+  if (!Array.isArray(arr) || arr.length === 0) return 'Any';
+  const vals = arr.map((c) => String(c?.value || '').toUpperCase());
+  if (vals.includes('ANY')) return 'Any';
+
+  const labels = arr.map((c) => c?.label || c?.value).filter(Boolean) as string[];
+  if (labels.length <= 2) return labels.join(', ');
+  return `${labels.slice(0, 2).join(', ')} +${labels.length - 2} more`;
+};
+
+const fmtCategories = (arr?: string[]) => {
+  if (!Array.isArray(arr) || arr.length === 0) return 'Any';
+  const up = arr.map((x) => String(x).toUpperCase());
+  if (up.includes('ANY')) return 'Any';
+  if (arr.some((x) => String(x).toLowerCase() === 'any')) return 'Any';
+  return arr.join(', ');
+};
+
+const pickContactCountry = (c: RosterEmail) => c.country ?? c.youtube?.country ?? null;
+
+const pickContactFollowers = (c: RosterEmail) => {
+  const n =
+    typeof c.followerCount === 'number' && Number.isFinite(c.followerCount)
+      ? c.followerCount
+      : typeof c.youtube?.subscriberCount === 'number' && Number.isFinite(c.youtube.subscriberCount)
+      ? c.youtube.subscriberCount
+      : null;
+  return n;
 };
 
 /* ==============================
@@ -143,17 +218,15 @@ export default function EmployeeEmailCollectionsPage() {
   const [open, setOpen] = useState(false);
   const [activeUserId, setActiveUserId] = useState<string | null>(null);
 
-  // Track which user is currently being paid (to show spinner / disable)
   const [payingUserId, setPayingUserId] = useState<string | null>(null);
 
-  // Tick for countdown updates every second
+  // countdown tick
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Initial load + on taskId change
   useEffect(() => {
     (async () => {
       try {
@@ -165,7 +238,7 @@ export default function EmployeeEmailCollectionsPage() {
         }
         await loadRoster(taskId);
       } catch {
-        // handled in loadRoster
+        // handled
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -179,7 +252,6 @@ export default function EmployeeEmailCollectionsPage() {
       const employeeId = readLocal(['employeeId', 'EmployeeId', 'empId', 'EMPLOYEE_ID']);
       if (!employeeId) throw new Error('Missing employeeId in localStorage.');
 
-      // matches your backend shape & sample response
       const resp = await post<RosterResponse>('/employee/taskbyuser', {
         taskId: tid,
         employeeId,
@@ -199,9 +271,7 @@ export default function EmployeeEmailCollectionsPage() {
 
   const availablePlatforms = useMemo(() => {
     const set = new Set<string>();
-    (roster?.users || []).forEach((u) =>
-      u.emails?.forEach((e) => e.platform && set.add(e.platform))
-    );
+    (roster?.users || []).forEach((u) => u.emails?.forEach((e) => e.platform && set.add(e.platform)));
     return Array.from(set).sort();
   }, [roster]);
 
@@ -224,13 +294,23 @@ export default function EmployeeEmailCollectionsPage() {
           const hasPlatform = r.emails?.some((d) => d.platform === platform);
           if (!hasPlatform) return false;
         }
+
         if (q.trim()) {
           const needle = q.toLowerCase();
-          const hay = [r.name || '', r.userId, ...(r.emails || []).flatMap((d) => [d.emailMasked, d.handle])]
-            .join(' ')
-            .toLowerCase();
+
+          const extra = (r.emails || [])
+            .map((d) => {
+              const countryTxt = pickContactCountry(d) || '';
+              const catTxt = Array.isArray(d.categories) ? d.categories.join(' ') : '';
+              const ytTxt = d.youtube ? `${d.youtube.title || ''} ${d.youtube.handle || ''}` : '';
+              return `${d.emailMasked} ${d.handle} ${countryTxt} ${catTxt} ${ytTxt}`;
+            })
+            .join(' ');
+
+          const hay = [r.name || '', r.userId, extra].join(' ').toLowerCase();
           if (!hay.includes(needle)) return false;
         }
+
         return true;
       })
       .sort((a, b) => {
@@ -251,13 +331,8 @@ export default function EmployeeEmailCollectionsPage() {
   };
 
   const countdown = useMemo(() => {
-    if (!currentTask)
-      return { label: '-', state: 'closed' as 'active' | 'urgent' | 'closed' };
-    const { time, expired, hoursLeft } = getTimeLeft(
-      currentTask.createdAt,
-      currentTask.expireIn,
-      currentTask.expiresAt
-    );
+    if (!currentTask) return { label: '-', state: 'closed' as 'active' | 'urgent' | 'closed' };
+    const { time, expired, hoursLeft } = getTimeLeft(currentTask.createdAt, currentTask.expireIn, currentTask.expiresAt);
     const st = expired ? 'closed' : hoursLeft <= 6 ? 'urgent' : 'active';
     return { label: expired ? 'Expired' : time, state: st };
   }, [currentTask]);
@@ -266,11 +341,14 @@ export default function EmployeeEmailCollectionsPage() {
     if (!activeUserId || !roster) return null;
     const base = roster.users.find((u) => u.userId === activeUserId) || null;
     if (!base) return null;
+
     const times = (base.emails || [])
       .map((e) => (e.createdAt ? +new Date(e.createdAt) : 0))
       .filter(Boolean);
+
     const lastSavedAt = times.length ? new Date(Math.max(...times)).toISOString() : null;
     const total = base.emails?.length || 0;
+
     return { ...base, lastSavedAt, total } as RosterUserWithMeta;
   }, [activeUserId, roster]);
 
@@ -278,9 +356,8 @@ export default function EmployeeEmailCollectionsPage() {
      Pay Logic
      ============================== */
 
-  // Only allow payout when the user is completed and not already paid.
   const isEligibleForPay = (u: { status: RosterUser['status']; paid?: boolean }) =>
-    u.status === 'completed' && !u.paid;
+    String(u.status).toLowerCase() === 'completed' && !u.paid;
 
   async function handlePay(user: RosterUserWithMeta) {
     try {
@@ -290,10 +367,7 @@ export default function EmployeeEmailCollectionsPage() {
       const employeeId = readLocal(['employeeId', 'EmployeeId', 'empId', 'EMPLOYEE_ID']);
       if (!employeeId) throw new Error('Missing employeeId in localStorage.');
 
-      // Guard on client too (UX)
-      if (!isEligibleForPay(user)) {
-        throw new Error('Pay enabled only after the user completes the task.');
-      }
+      if (!isEligibleForPay(user)) throw new Error('Pay enabled only after the user completes the task.');
 
       const { isConfirmed } = await Swal.fire({
         title: 'Confirm Payout?',
@@ -316,14 +390,11 @@ export default function EmployeeEmailCollectionsPage() {
 
       toast('success', 'Payout marked', `${user.name || user.userId} has been marked as paid.`);
 
-      // Optimistic update
       setRoster((prev) =>
         prev
           ? {
               ...prev,
-              users: prev.users.map((u) =>
-                u.userId === user.userId ? { ...u, paid: true } : u
-              ),
+              users: prev.users.map((u) => (u.userId === user.userId ? { ...u, paid: true } : u)),
             }
           : prev
       );
@@ -350,7 +421,7 @@ export default function EmployeeEmailCollectionsPage() {
                 <div className="text-xs text-muted-foreground">Search</div>
                 <div className="relative">
                   <Input
-                    placeholder="Search by user, email(masked), or handle…"
+                    placeholder="Search by user, email(masked), handle, country, category…"
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
                     className="pl-8"
@@ -379,11 +450,7 @@ export default function EmployeeEmailCollectionsPage() {
 
             <div className="flex gap-2">
               <Button variant="outline" onClick={refresh} disabled={!taskId || loading}>
-                {loading ? (
-                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                ) : (
-                  <RefreshCcw className="h-4 w-4 mr-1" />
-                )}
+                {loading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCcw className="h-4 w-4 mr-1" />}
                 Refresh
               </Button>
             </div>
@@ -391,21 +458,23 @@ export default function EmployeeEmailCollectionsPage() {
         </CardContent>
       </Card>
 
-      {/* Task meta + countdown */}
+      {/* Task meta + countdown (UPDATED with Followers + Countries + Categories) */}
       {currentTask && (
         <Card className="border bg-white">
-          <CardContent className="p-4 flex flex-wrap items-center gap-3">
+          <CardContent className="p-4 flex flex-wrap items-center gap-2">
             <Badge variant="outline">Task: {currentTask.platform}</Badge>
             <Badge variant="outline">Target/employee: {currentTask.targetPerEmployee}</Badge>
             <Badge variant="outline">₹{currentTask.amountPerPerson}/person</Badge>
             <Badge variant="outline">Max Emails: {currentTask.maxEmails}</Badge>
+
+            {/* ✅ NEW */}
+            <Badge variant="outline">Followers: {fmtFollowersRange(currentTask.minFollowers, currentTask.maxFollowers)}</Badge>
+            <Badge variant="outline">Countries: {fmtCountriesShort(currentTask.countries)}</Badge>
+            <Badge variant="outline">Categories: {fmtCategories(currentTask.categories)}</Badge>
+
             <span
               className={`ml-auto text-sm font-medium ${
-                countdown.state === 'closed'
-                  ? 'text-gray-500'
-                  : countdown.state === 'urgent'
-                  ? 'text-amber-700'
-                  : 'text-blue-700'
+                countdown.state === 'closed' ? 'text-gray-500' : countdown.state === 'urgent' ? 'text-amber-700' : 'text-blue-700'
               }`}
             >
               ⏳ {countdown.label}
@@ -460,6 +529,7 @@ export default function EmployeeEmailCollectionsPage() {
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
+
               <TableBody>
                 {loading ? (
                   <TableRow>
@@ -477,38 +547,43 @@ export default function EmployeeEmailCollectionsPage() {
                   </TableRow>
                 ) : (
                   filteredUsers.map((r) => {
-                    const payDisabled =
-                      !currentTask ||
-                      payingUserId === r.userId ||
-                      !isEligibleForPay(r);
+                    const payDisabled = !currentTask || payingUserId === r.userId || !isEligibleForPay(r);
+
+                    const statusLower = String(r.status).toLowerCase();
+                    const statusBadge =
+                      statusLower === 'completed' ? (
+                        <Badge className="bg-green-600">Completed</Badge>
+                      ) : statusLower === 'partial' ? (
+                        <Badge className="bg-amber-500">Partial</Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-white">
+                          {r.status}
+                        </Badge>
+                      );
 
                     return (
                       <TableRow key={r.userId} className="hover:bg-gray-50">
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="font-medium">{r.name || r.userId}</span>
+                            <span className="text-xs text-muted-foreground">{r.userId}</span>
                           </div>
                         </TableCell>
+
                         <TableCell>
                           <Badge variant="outline">
                             {r.doneCount}/{currentTask?.maxEmails ?? 0}
                           </Badge>
                         </TableCell>
+
+                        <TableCell>{statusBadge}</TableCell>
+
                         <TableCell>
-                          {r.status === 'completed' ? (
-                            <Badge className="bg-green-600">Completed</Badge>
-                          ) : (
-                            <Badge className="bg-amber-500">Partial</Badge>
-                          )}
+                          {r.paid ? <Badge className="bg-green-600">Paid</Badge> : <Badge variant="outline">Unpaid</Badge>}
                         </TableCell>
-                        <TableCell>
-                          {r.paid ? (
-                            <Badge className="bg-green-600">Paid</Badge>
-                          ) : (
-                            <Badge variant="outline">Unpaid</Badge>
-                          )}
-                        </TableCell>
+
                         <TableCell>{formatDateTime(r.lastSavedAt || undefined)}</TableCell>
+
                         <TableCell className="text-right">
                           <div className="inline-flex gap-2">
                             <Button
@@ -521,15 +596,12 @@ export default function EmployeeEmailCollectionsPage() {
                             >
                               <ArrowUpRight className="h-4 w-4 mr-1" /> View
                             </Button>
+
                             <Button
                               size="sm"
                               onClick={() => handlePay(r)}
                               disabled={payDisabled}
-                              title={
-                                !isEligibleForPay(r)
-                                  ? 'Pay enabled only after the user completes the task'
-                                  : undefined
-                              }
+                              title={!isEligibleForPay(r) ? 'Pay enabled only after the user completes the task' : undefined}
                             >
                               {payingUserId === r.userId ? (
                                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -550,9 +622,9 @@ export default function EmployeeEmailCollectionsPage() {
         </CardContent>
       </Card>
 
-      {/* Details side panel */}
+      {/* Details side panel (UPDATED to show follower/country/categories/youtube) */}
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className="w-full sm:max-w-xl overflow-y-auto p-4">
+        <SheetContent className="w-full sm:max-w-4xl overflow-y-auto p-4">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">Saved Contacts (masked)</SheetTitle>
           </SheetHeader>
@@ -565,26 +637,17 @@ export default function EmployeeEmailCollectionsPage() {
                 <div className="flex-1">
                   <div className="text-sm text-muted-foreground">User</div>
                   <div className="font-medium">{activeUser.name || activeUser.userId}</div>
+                  <div className="text-xs text-muted-foreground">{activeUser.userId}</div>
                 </div>
+
                 <div className="flex items-center gap-2">
-                  {activeUser.paid ? (
-                    <Badge className="bg-green-600">Paid</Badge>
-                  ) : (
-                    <Badge variant="outline">Unpaid</Badge>
-                  )}
+                  {activeUser.paid ? <Badge className="bg-green-600">Paid</Badge> : <Badge variant="outline">Unpaid</Badge>}
+
                   <Button
                     size="sm"
                     onClick={() => handlePay(activeUser)}
-                    disabled={
-                      !currentTask ||
-                      payingUserId === activeUser.userId ||
-                      !isEligibleForPay(activeUser)
-                    }
-                    title={
-                      !isEligibleForPay(activeUser)
-                        ? 'Pay enabled only after the user completes the task'
-                        : undefined
-                    }
+                    disabled={!currentTask || payingUserId === activeUser.userId || !isEligibleForPay(activeUser)}
+                    title={!isEligibleForPay(activeUser) ? 'Pay enabled only after the user completes the task' : undefined}
                   >
                     {payingUserId === activeUser.userId ? (
                       <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -609,6 +672,7 @@ export default function EmployeeEmailCollectionsPage() {
                 <CardHeader className="p-4">
                   <CardTitle className="text-sm">Contacts</CardTitle>
                 </CardHeader>
+
                 <CardContent className="p-4 space-y-3">
                   {activeUser.emails.length === 0 ? (
                     <div className="text-sm text-muted-foreground">No contacts for this user.</div>
@@ -618,20 +682,69 @@ export default function EmployeeEmailCollectionsPage() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Email (masked)</TableHead>
-                            <TableHead>Handle</TableHead>
+                            <TableHead>Handle / Channel</TableHead>
                             <TableHead>Platform</TableHead>
+                            <TableHead>Followers</TableHead>
+                            <TableHead>Country</TableHead>
+                            <TableHead>Categories</TableHead>
                             <TableHead>Saved</TableHead>
                           </TableRow>
                         </TableHeader>
+
                         <TableBody>
-                          {activeUser.emails.map((c, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell className="font-medium">{c.emailMasked}</TableCell>
-                              <TableCell>{c.handle}</TableCell>
-                              <TableCell className="capitalize">{c.platform}</TableCell>
-                              <TableCell>{formatDateTime(c.createdAt)}</TableCell>
-                            </TableRow>
-                          ))}
+                          {activeUser.emails.map((c, idx) => {
+                            const followers = pickContactFollowers(c);
+                            const country = pickContactCountry(c);
+                            const cats = Array.isArray(c.categories) ? c.categories : [];
+
+                            return (
+                              <TableRow key={idx}>
+                                <TableCell className="font-medium">{c.emailMasked}</TableCell>
+
+                                <TableCell>
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{c.handle}</span>
+
+                                    {c.youtube?.title || c.youtube?.handle ? (
+                                      <span className="text-xs text-muted-foreground">
+                                        {c.youtube?.title ? `${c.youtube.title}` : ''}
+                                        {c.youtube?.handle ? ` • ${c.youtube.handle}` : ''}
+                                      </span>
+                                    ) : null}
+
+                                    {c.youtube?.urlByHandle ? (
+                                      <a
+                                        href={c.youtube.urlByHandle}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-xs text-blue-600 hover:underline"
+                                      >
+                                        Open channel
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
+
+                                <TableCell className="capitalize">{c.platform}</TableCell>
+
+                                <TableCell>{followers != null ? fmtNum(followers) : '-'}</TableCell>
+
+                                <TableCell>{country || '-'}</TableCell>
+
+                                <TableCell className="max-w-[280px]">
+                                  {cats.length ? (
+                                    <span className="text-sm">{cats.join(', ')}</span>
+                                  ) : c.youtube?.topicCategoryLabels?.length ? (
+                                    <span className="text-sm">{c.youtube.topicCategoryLabels.join(', ')}</span>
+                                  ) : (
+                                    '-'
+                                  )}
+                                </TableCell>
+
+                                <TableCell>{formatDateTime(c.createdAt)}</TableCell>
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </div>

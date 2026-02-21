@@ -19,31 +19,39 @@ import 'sweetalert2/dist/sweetalert2.min.css';
 
 /* ===================== Types ===================== */
 
+type CountryOption = { value: string; label?: string };
+
 interface LinkItem {
   _id: string;
   title: string;
-  isLatest?: boolean; // present from backend but NOT used for active state
+  isLatest?: boolean;
   target: number;
   amount: number;
   createdAt: string; // ISO
   expireIn: number; // hours
   expiresAt?: string; // ISO (optional)
-  status?: 'active' | 'expired'; // optional backend hint
+  status?: 'active' | 'expired';
 }
 
 interface EmailTaskItem {
   _id: string;
   createdBy: string;
-  platform: string; // Instagram | TikTok | YouTube
+  platform: string;
   targetUser?: string | number;
   targetPerEmployee: number;
   amountPerPerson: number;
   maxEmails: number;
   expireIn: number; // hours
   createdAt: string; // ISO
-  isLatest?: boolean; // present from backend but NOT used for active state
+  isLatest?: boolean;
   status?: 'active' | 'expired';
-  expiresAt?: string; // ISO (prefer when provided)
+  expiresAt?: string;
+
+  // ✅ NEW (as per latest API response)
+  minFollowers?: number;
+  maxFollowers?: number;
+  countries?: CountryOption[];
+  categories?: string[];
 }
 
 function SkeletonCard() {
@@ -60,8 +68,7 @@ function SkeletonCard() {
   );
 }
 
-// Interleaved item type for rendering
- type MergedItem =
+type MergedItem =
   | {
       kind: 'link';
       _id: string;
@@ -87,7 +94,47 @@ function SkeletonCard() {
       targetPerEmployee: number;
       amountPerPerson: number;
       maxEmails: number;
+
+      // ✅ NEW
+      minFollowers?: number;
+      maxFollowers?: number;
+      countries?: CountryOption[];
+      categories?: string[];
     };
+
+/* ===================== Helpers ===================== */
+
+const fmtNum = (n?: number) =>
+  typeof n === 'number' && Number.isFinite(n) ? new Intl.NumberFormat('en-IN').format(n) : '—';
+
+const fmtFollowersRange = (min?: number, max?: number) => {
+  const hasMin = typeof min === 'number' && Number.isFinite(min);
+  const hasMax = typeof max === 'number' && Number.isFinite(max);
+  if (!hasMin && !hasMax) return 'Any';
+  if (hasMin && hasMax) return `${fmtNum(min)} - ${fmtNum(max)}`;
+  if (hasMin) return `≥ ${fmtNum(min)}`;
+  return `≤ ${fmtNum(max)}`;
+};
+
+const fmtCountriesShort = (arr?: CountryOption[]) => {
+  if (!Array.isArray(arr) || arr.length === 0) return 'Any';
+
+  const vals = arr.map((c) => String(c?.value || '').toUpperCase());
+  if (vals.includes('ANY')) return 'Any';
+
+  const labels = arr.map((c) => c?.label || c?.value).filter(Boolean) as string[];
+  if (labels.length <= 2) return labels.join(', ');
+  return `${labels.slice(0, 2).join(', ')} +${labels.length - 2} more`;
+};
+
+const fmtCategories = (arr?: string[]) => {
+  if (!Array.isArray(arr) || arr.length === 0) return 'Any';
+  const up = arr.map((x) => String(x).toUpperCase());
+  if (up.includes('ANY')) return 'Any';
+  // if backend sends "any"
+  if (arr.some((x) => String(x).toLowerCase() === 'any')) return 'Any';
+  return arr.join(', ');
+};
 
 /* ===================== Component ===================== */
 
@@ -135,7 +182,7 @@ export default function Dashboard() {
       .finally(() => setLoadingLinks(false));
   }, []);
 
-  // fetch email tasks (employee scope via GET)
+  // fetch email tasks
   useEffect(() => {
     setLoadingTasks(true);
     api
@@ -193,9 +240,11 @@ export default function Dashboard() {
     const diff = expiryDate.getTime() - now.getTime();
 
     if (diff <= 0) return { expired: true, time: 'Expired', hoursLeft: 0, expiryDate } as const;
+
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
     return {
       expired: false,
       time: `${hours}h ${minutes}m ${seconds}s`,
@@ -213,7 +262,7 @@ export default function Dashboard() {
       minute: '2-digit',
     });
 
-  // Basic search on link fields
+  // Search links
   const filteredLinks = useMemo(() => {
     if (!query.trim()) return links;
     const q = query.toLowerCase();
@@ -222,22 +271,35 @@ export default function Dashboard() {
     );
   }, [links, query]);
 
-  // Basic search on task fields
+  // Search email tasks (includes followers + country labels/values + categories)
   const filteredTasks = useMemo(() => {
     if (!query.trim()) return emailTasks;
     const q = query.toLowerCase();
-    return emailTasks.filter((t) =>
-      [
+
+    return emailTasks.filter((t) => {
+      const countriesTxt = Array.isArray(t.countries)
+        ? t.countries
+            .map((c) => `${c?.value || ''} ${c?.label || ''}`.trim())
+            .join(' ')
+        : '';
+
+      const categoriesTxt = Array.isArray(t.categories) ? t.categories.join(' ') : '';
+
+      return [
         t.platform,
         String(t.targetUser ?? ''),
         String(t.targetPerEmployee),
         String(t.amountPerPerson),
         String(t.maxEmails),
-      ].some((v) => String(v).toLowerCase().includes(q))
-    );
+        String(t.minFollowers ?? ''),
+        String(t.maxFollowers ?? ''),
+        countriesTxt,
+        categoriesTxt,
+      ].some((v) => String(v).toLowerCase().includes(q));
+    });
   }, [emailTasks, query]);
 
-  // Interleaved (newest first) combined feed
+  // Interleaved (newest first)
   const mergedItems = useMemo<MergedItem[]>(() => {
     const linkItems: MergedItem[] = filteredLinks.map((l) => ({
       kind: 'link',
@@ -265,11 +327,15 @@ export default function Dashboard() {
       targetPerEmployee: t.targetPerEmployee,
       amountPerPerson: t.amountPerPerson,
       maxEmails: t.maxEmails,
+
+      // ✅ NEW
+      minFollowers: t.minFollowers,
+      maxFollowers: t.maxFollowers,
+      countries: t.countries,
+      categories: t.categories,
     }));
 
-    return [...linkItems, ...taskItems].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    return [...linkItems, ...taskItems].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [filteredLinks, filteredTasks]);
 
   /* ===================== Render ===================== */
@@ -289,12 +355,7 @@ export default function Dashboard() {
               Balance Left: ₹{balance.toLocaleString()}
             </span>
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => router.push('/employee/users')}
-            className="flex items-center gap-1"
-          >
+          <Button size="sm" variant="outline" onClick={() => router.push('/employee/users')} className="flex items-center gap-1">
             <UsersIcon className="h-4 w-4" />
             Users
           </Button>
@@ -310,7 +371,7 @@ export default function Dashboard() {
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by title, platform, target, amount…"
+          placeholder="Search by title, platform, target, amount, country, followers…"
           className="max-w-md"
         />
         <Badge variant="outline" className="bg-white">
@@ -318,7 +379,7 @@ export default function Dashboard() {
         </Badge>
       </div>
 
-      {/* All Items (Links + Email Tasks interleaved by recency) */}
+      {/* All Items */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold">All Items</h2>
@@ -336,12 +397,7 @@ export default function Dashboard() {
             </Card>
           ) : (
             mergedItems.map((item) => {
-              // Common: compute expiry-driven state
-              const { time, expired, hoursLeft, expiryDate } = getTimeLeft(
-                item.createdAt,
-                item.expireIn,
-                item.expiresAt
-              );
+              const { time, expired, hoursLeft, expiryDate } = getTimeLeft(item.createdAt, item.expireIn, item.expiresAt);
               const state = expired ? 'closed' : hoursLeft <= 6 ? 'urgent' : 'active';
 
               if (item.kind === 'link') {
@@ -417,9 +473,11 @@ export default function Dashboard() {
               }
 
               // kind === 'task'
+              const t = item as Extract<MergedItem, { kind: 'task' }>;
+
               return (
                 <Card
-                  key={`task-${item._id}`}
+                  key={`task-${t._id}`}
                   className={`relative p-6 space-y-4 transition ${
                     state === 'active'
                       ? 'bg-white border border-blue-200 hover:shadow-md'
@@ -438,16 +496,32 @@ export default function Dashboard() {
                         <Badge variant="outline">Closed</Badge>
                       )}
                       <Badge variant="outline">Email Task</Badge>
-                      <Badge variant="outline">Platform: {item.platform}</Badge>
-                      <Badge variant="outline">₹{item.amountPerPerson}/person</Badge>
-                      <Badge variant="outline">Max Emails: {item.maxEmails}</Badge>
+                      <Badge variant="outline">Platform: {t.platform}</Badge>
+                      <Badge variant="outline">₹{t.amountPerPerson}/person</Badge>
+                      <Badge variant="outline">Max Emails: {t.maxEmails}</Badge>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <p className="text-lg font-semibold break-words">{item.targetUser || ''}</p>
-                    <p className="text-xs text-muted-foreground">Target per employee: {item.targetPerEmployee}</p>
+                    <p className="text-lg font-semibold break-words">{t.targetUser || 'Email Collection Task'}</p>
+                    <p className="text-xs text-muted-foreground">Target per employee: {t.targetPerEmployee}</p>
                     <p className="text-xs text-muted-foreground">Expires: {formatDateTime(expiryDate)}</p>
+                  </div>
+
+                  {/* ✅ NEW DETAILS (Followers + Country + Category) */}
+                  <div className="rounded-lg border bg-gray-50 p-3 text-sm space-y-2">
+                    <div className="flex justify-between gap-3">
+                      <span className="text-gray-600">Followers</span>
+                      <span className="font-medium text-gray-900">{fmtFollowersRange(t.minFollowers, t.maxFollowers)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-gray-600">Countries</span>
+                      <span className="font-medium text-gray-900 text-right">{fmtCountriesShort(t.countries)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-gray-600">Categories</span>
+                      <span className="font-medium text-gray-900 text-right">{fmtCategories(t.categories)}</span>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between text-sm">
@@ -462,12 +536,8 @@ export default function Dashboard() {
                   </div>
 
                   <div className="border-t pt-4 flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => openEmailTask(item._id)}
-                      className="flex items-center gap-1"
-                    >
-                      {navigatingId === item._id ? (
+                    <Button size="sm" onClick={() => openEmailTask(t._id)} className="flex items-center gap-1">
+                      {navigatingId === t._id ? (
                         <span className="animate-spin h-4 w-4 border-t-2 border-gray-600 rounded-full" />
                       ) : (
                         <MailCheckIcon className="h-4 w-4" />

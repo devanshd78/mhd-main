@@ -25,6 +25,7 @@ import Swal from "sweetalert2";
 import "sweetalert2/dist/sweetalert2.min.css";
 
 /* ===================== Types ===================== */
+type CountryOption = { value: string; label?: string };
 
 interface BatchItemDetails {
   outcome?: "saved" | "duplicate" | "invalid" | string;
@@ -130,7 +131,11 @@ interface EmailTaskItem {
   isLatest?: boolean;
   isCompleted: number; // 0 | 1
   isPartial?: number; // 0 | 1
-  doneCount?: number; // how many done by this user
+  doneCount?: number;
+  minFollowers?: number;
+  maxFollowers?: number;
+  countries?: CountryOption[];
+  categories?: string[];
 }
 
 type MergedItem =
@@ -163,6 +168,10 @@ type MergedItem =
     isCompleted: number; // 0 | 1
     isPartial?: number; // 0 | 1
     doneCount?: number; // number completed by user
+    minFollowers?: number;
+    maxFollowers?: number;
+    countries?: CountryOption[];
+    categories?: string[];
   };
 
 interface UserProfile {
@@ -210,6 +219,96 @@ interface SubmitEntryResponse {
 }
 
 /* ===================== Constants / Helpers ===================== */
+
+const fmtFollowers = (n?: number) =>
+  typeof n === "number" && isFinite(n) ? new Intl.NumberFormat("en-IN").format(n) : "—";
+
+const fmtFollowersRange = (min?: number, max?: number) => {
+  const hasMin = typeof min === "number" && isFinite(min);
+  const hasMax = typeof max === "number" && isFinite(max);
+  if (!hasMin && !hasMax) return "Any";
+  if (hasMin && hasMax) return `${fmtFollowers(min)} - ${fmtFollowers(max)}`;
+  if (hasMin) return `≥ ${fmtFollowers(min)}`;
+  return `≤ ${fmtFollowers(max)}`;
+};
+
+type CountryLike = CountryOption | string;
+
+function normalizeCountries(input?: CountryLike[] | null) {
+  const raw = Array.isArray(input) ? input : [];
+  const cleaned = raw
+    .map((c: any) => {
+      const value = (c?.value ?? c)?.toString?.() ?? "";
+      const label = (c?.label ?? c?.name ?? c?.value ?? c)?.toString?.() ?? "";
+      return { value: value.trim(), label: label.trim() };
+    })
+    .filter((c) => c.value || c.label);
+
+  // Deduplicate by normalized value/label
+  const seen = new Set<string>();
+  const deduped = cleaned.filter((c) => {
+    const key = (c.value || c.label).toLowerCase();
+    if (!key) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const tokens = deduped.map((c) => (c.value || c.label).toUpperCase());
+  const isAll =
+    tokens.includes("ANY") || tokens.includes("ALL") || tokens.includes("*") || tokens.includes("GLOBAL");
+
+  if (isAll) return { mode: "all" as const, items: [] as { value: string; label: string }[] };
+
+  // If nothing, treat as Any
+  if (!deduped.length) return { mode: "any" as const, items: [] as { value: string; label: string }[] };
+
+  return { mode: "list" as const, items: deduped };
+}
+
+function CountriesBadges({
+  countries,
+  maxVisible = 4,
+}: {
+  countries?: CountryLike[] | null;
+  maxVisible?: number;
+}) {
+  const normalized = normalizeCountries(countries);
+
+  if (normalized.mode === "all")
+    return <Badge variant="outline" className="bg-transparent">All Countries</Badge>;
+
+  if (normalized.mode === "any")
+    return <Badge variant="outline" className="bg-transparent">Any</Badge>;
+
+  const items = normalized.items;
+  const visible = items.slice(0, maxVisible);
+  const hidden = items.length - visible.length;
+
+  const fullText = items.map((c) => c.label || c.value).join(", ");
+
+  return (
+    <div
+      className="flex flex-wrap justify-end gap-1 max-w-full overflow-hidden"
+      title={fullText}
+    >
+      {visible.map((c, idx) => (
+        <Badge
+          key={`${c.value}-${idx}`}
+          variant="secondary"
+          className="text-xs max-w-full truncate"
+        >
+          {(c.label || c.value).toUpperCase()}
+        </Badge>
+      ))}
+      {hidden > 0 && (
+        <Badge variant="outline" className="bg-transparent text-xs shrink-0">
+          +{hidden}
+        </Badge>
+      )}
+    </div>
+  );
+}
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE = 10 * 1024 * 1024;
@@ -1260,6 +1359,10 @@ export default function Dashboard() {
       isCompleted: t.isCompleted ?? 0,
       isPartial: t.isPartial ?? 0,
       doneCount: t.doneCount ?? 0,
+      minFollowers: t.minFollowers,
+      maxFollowers: t.maxFollowers,
+      countries: t.countries,
+      categories: t.categories,
     }));
 
     return [...linkItems, ...taskItems].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -1440,6 +1543,19 @@ export default function Dashboard() {
                       <span className="font-medium">{t.maxEmails}</span>
                     </div>
 
+                    <div className="flex justify-between">
+                      <span>Followers</span>
+                      <span className="font-medium">{fmtFollowersRange(t.minFollowers, t.maxFollowers)}</span>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="text-gray-700 shrink-0">Countries</span>
+
+                      <div className="flex-1 min-w-0">
+                        <CountriesBadges countries={t.countries} maxVisible={6} />
+                      </div>
+                    </div>
+
                     {(() => {
                       const done = Number(t.doneCount ?? 0);
                       const target = Number(t.maxEmails ?? 0);
@@ -1491,6 +1607,10 @@ export default function Dashboard() {
                                   isCompleted: t.isCompleted ?? 0,
                                   isPartial: t.isPartial ?? 0,
                                   doneCount: t.doneCount ?? 0,
+                                  minFollowers: t.minFollowers,
+                                  maxFollowers: t.maxFollowers,
+                                  countries: t.countries,
+                                  categories: t.categories,
                                 } as EmailTaskItem)
                               }
                             >
@@ -1662,6 +1782,20 @@ export default function Dashboard() {
                   <div className="flex justify-between mt-1">
                     <span className="text-gray-700">Max screenshots</span>
                     <span className="font-medium">{selectedTask?.maxEmails ?? "—"}</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between mt-1">
+                  <span className="text-gray-700">Followers</span>
+                  <span className="font-medium">
+                    {fmtFollowersRange(selectedTask?.minFollowers, selectedTask?.maxFollowers)}
+                  </span>
+                </div>
+
+                <div className="flex items-start gap-2 mt-1">
+                  <span className="text-gray-700 shrink-0">Countries</span>
+                  <div className="flex-1 min-w-0">
+                    <CountriesBadges countries={selectedTask?.countries} maxVisible={6} />
                   </div>
                 </div>
               </div>
