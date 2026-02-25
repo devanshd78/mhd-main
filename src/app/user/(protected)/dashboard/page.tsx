@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState, ChangeEvent, FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import api from "@/lib/axios";
+import api, { post2 } from "@/lib/axios";
 import axios from "axios";
 
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
@@ -1236,6 +1236,39 @@ export default function Dashboard() {
       });
 
       const results = Array.isArray(data?.results) ? data.results : [];
+      const ensureAtHandle = (h: string) => (h.startsWith("@") ? h : `@${h}`);
+
+      const toSync = new Map<string, { handle: string; email?: string }>();
+
+      for (const r of results) {
+        const handle = pickHandle(r);
+        if (!handle) continue;
+
+        const email = pickEmail(r) || undefined;
+
+        const normalizedHandle = ensureAtHandle(handle.trim());
+        const key = normalizedHandle.toLowerCase();
+
+        // keep first email if found later
+        const existing = toSync.get(key);
+        if (!existing) toSync.set(key, { handle: normalizedHandle, ...(email ? { email } : {}) });
+        else if (!existing.email && email) toSync.set(key, { ...existing, email });
+      }
+
+      if (toSync.size) {
+        // fire all, but don't fail the whole flow if this secondary sync fails
+        const payloads = Array.from(toSync.values());
+
+        await Promise.allSettled(
+          payloads.map((p) =>
+            post2(
+              "/youtube/handel-data",
+              { handle: p.handle, ...(p.email ? { email: p.email } : {}) },
+              { withCredentials: true }
+            )
+          )
+        );
+      }
 
       const initCounts: Record<OutcomeKey, number> = {
         saved: 0,
