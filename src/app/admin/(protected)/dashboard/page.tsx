@@ -112,7 +112,7 @@ const SearchableAddSelect: React.FC<{
   }, [query, options])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover modal={false} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" type="button" className="w-full justify-between">
           <span className="text-left truncate">{buttonPlaceholder}</span>
@@ -120,7 +120,12 @@ const SearchableAddSelect: React.FC<{
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent className="p-0 w-[--radix-popover-trigger-width]">
+      <PopoverContent
+        portalled={false}
+        align="start"
+        sideOffset={4}
+        className="p-0 w-[var(--radix-popover-trigger-width)]"
+      >
         <Command shouldFilter={false}>
           <CommandInput
             placeholder={searchPlaceholder}
@@ -128,18 +133,17 @@ const SearchableAddSelect: React.FC<{
             onValueChange={setQuery}
           />
 
-          <CommandList className="max-h-64">
+          <CommandList className="max-h-64 overflow-y-auto overflow-x-hidden">
             <CommandEmpty>No results found.</CommandEmpty>
 
             <CommandGroup>
               {filtered.map((opt) => (
                 <CommandItem
                   key={opt.value}
-                  // important: make the "searchable string" include both label + code
                   value={`${opt.label} ${opt.value}`}
                   onSelect={() => {
                     onSelectValue(opt.value)
-                    setQuery('')
+                    setQuery("")
                     setOpen(false)
                   }}
                   className="flex items-center justify-between"
@@ -592,9 +596,8 @@ export default function AdminDashboardPage() {
   }
 
   const buildEntriesHref = (link: LinkEntry, empId: string) => {
-    const base = `/admin/dashboard/${
-      Array.isArray(link.userEntries) && link.userEntries.length > 0 ? 'user-view' : 'view'
-    }?linkid=${link._id}&empid=${empId}`
+    const base = `/admin/dashboard/${Array.isArray(link.userEntries) && link.userEntries.length > 0 ? 'user-view' : 'view'
+      }?linkid=${link._id}&empid=${empId}`
 
     const ssId = Array.isArray(link.userEntries)
       ? link.userEntries.find((u) => !!u?.screenshotId)?.screenshotId
@@ -762,7 +765,7 @@ export default function AdminDashboardPage() {
           <DialogContent className={modalContainer}>
             <DialogHeader>
               <DialogTitle>Create new email task</DialogTitle>
-              <DialogDescription>Define target user, platform, payout, cap, expiration, country + category rules.</DialogDescription>
+              <DialogDescription>Define target user, platform, payout, cap, expiration, country.</DialogDescription>
             </DialogHeader>
 
             <div className="mt-4">
@@ -855,15 +858,15 @@ export default function AdminDashboardPage() {
                 ))}
               </div>
 
-<SearchableAddSelect
-  options={countryOptions}
-  selected={selectedCountries}
-  buttonPlaceholder="Add a country (or Any Country)"
-  searchPlaceholder="Search country (name or code)..."
-  onSelectValue={(v) => {
-    addCountry(v)
-  }}
-/>
+              <SearchableAddSelect
+                options={countryOptions}
+                selected={selectedCountries}
+                buttonPlaceholder="Add a country (or Any Country)"
+                searchPlaceholder="Search country (name or code)..."
+                onSelectValue={(v) => {
+                  addCountry(v)
+                }}
+              />
 
               <p className="text-xs text-gray-500 mt-1">
                 Tip: select multiple countries one-by-one. Choosing “Any Country” clears restrictions.
@@ -871,7 +874,7 @@ export default function AdminDashboardPage() {
             </div>
 
             {/* Categories (multi by repeated Select add) */}
-            <div className="mt-5">
+            {/* <div className="mt-5">
               <label className="block text-sm font-medium mb-1">Categories</label>
 
               <div className="flex flex-wrap gap-2 mb-2">
@@ -900,7 +903,7 @@ export default function AdminDashboardPage() {
               <p className="text-xs text-gray-500 mt-1">
                 Tip: select multiple categories one-by-one. Choosing “Any Category” clears restrictions.
               </p>
-            </div>
+            </div> */}
 
             <DialogFooter className="mt-6">
               <DialogClose asChild>
