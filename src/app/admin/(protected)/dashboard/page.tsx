@@ -72,6 +72,7 @@ interface Employee {
 interface LinkEntry {
   _id: string
   title: string
+  videoUrl?: string
   createdBy: string
   createdAt: string
   target: number
@@ -85,8 +86,8 @@ interface LinkEntry {
 
 type CountryOption = { value: string; label: string }
 type PlatformValue = 'youtube' | 'instagram' | 'tiktok'
-
 type SelectOption = { value: string; label: string }
+type LinkTaskMode = 'link' | 'like'
 
 const SearchableAddSelect: React.FC<{
   options: SelectOption[]
@@ -100,7 +101,6 @@ const SearchableAddSelect: React.FC<{
 
   const isSelected = (val: string) => selected.includes(val)
 
-  // Small optimization for large lists
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return options
@@ -143,7 +143,7 @@ const SearchableAddSelect: React.FC<{
                   value={`${opt.label} ${opt.value}`}
                   onSelect={() => {
                     onSelectValue(opt.value)
-                    setQuery("")
+                    setQuery('')
                     setOpen(false)
                   }}
                   className="flex items-center justify-between"
@@ -215,9 +215,11 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  /* Link modal */
+  /* Link / Like Link modal */
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [linkTaskMode, setLinkTaskMode] = useState<LinkTaskMode>('link')
   const [linkTitle, setLinkTitle] = useState('')
+  const [linkVideoUrl, setLinkVideoUrl] = useState('')
   const [linkTarget, setLinkTarget] = useState('')
   const [linkAmount, setLinkAmount] = useState('')
   const [expireIn, setExpireIn] = useState('')
@@ -246,14 +248,12 @@ export default function AdminDashboardPage() {
     targetPerEmployee?: string
   }>({})
 
-  // Countries via /admin/countries
   const [countryOptions, setCountryOptions] = useState<CountryOption[]>([
     { value: 'ANY', label: 'Any Country' },
   ])
   const [selectedCountries, setSelectedCountries] = useState<string[]>(['ANY'])
   const [countrySelectKey, setCountrySelectKey] = useState(0)
 
-  // Categories (static)
   const [selectedCategories, setSelectedCategories] = useState<string[]>(['ANY'])
   const [categorySelectKey, setCategorySelectKey] = useState(0)
 
@@ -271,7 +271,34 @@ export default function AdminDashboardPage() {
   const [notes, setNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const adminId = useMemo(() => (typeof window !== 'undefined' ? localStorage.getItem('adminId') || '' : ''), [])
+  const adminId = useMemo(
+    () => (typeof window !== 'undefined' ? localStorage.getItem('adminId') || '' : ''),
+    []
+  )
+
+  const resetLinkForm = (mode: LinkTaskMode) => {
+    setLinkTaskMode(mode)
+    setLinkTitle('')
+    setLinkVideoUrl('')
+    setLinkTarget('')
+    setLinkAmount('')
+    setExpireIn('')
+    setMinComments('2')
+    setMinReplies('2')
+    setRequireLike(mode === 'like')
+    setLinkRuleErrors({})
+    setError('')
+  }
+
+  const openCreateLinkModal = () => {
+    resetLinkForm('link')
+    setUploadOpen(true)
+  }
+
+  const openCreateLikeLinkModal = () => {
+    resetLinkForm('like')
+    setUploadOpen(true)
+  }
 
   /* Fetch employees */
   useEffect(() => {
@@ -296,7 +323,9 @@ export default function AdminDashboardPage() {
       const term = searchTerm.toLowerCase()
       setFiltered(
         employees.filter(
-          (e) => e.name.toLowerCase().includes(term) || e.email.toLowerCase().includes(term)
+          (e) =>
+            e.name.toLowerCase().includes(term) ||
+            e.email.toLowerCase().includes(term)
         )
       )
     }
@@ -306,7 +335,6 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (!emailTaskOpen) return
 
-    // reset defaults on open (optional)
     setSelectedCountries(['ANY'])
     setSelectedCategories(['ANY'])
     setCountrySelectKey((k) => k + 1)
@@ -342,6 +370,7 @@ export default function AdminDashboardPage() {
     }
     setSelectedCountries((prev) => uniquePush(prev.filter((x) => x !== 'ANY'), v))
   }
+
   const removeCountry = (v: string) => {
     setSelectedCountries((prev) => {
       const next = prev.filter((x) => x !== v)
@@ -357,6 +386,7 @@ export default function AdminDashboardPage() {
     }
     setSelectedCategories((prev) => uniquePush(prev.filter((x) => x !== 'ANY'), v))
   }
+
   const removeCategory = (v: string) => {
     setSelectedCategories((prev) => {
       const next = prev.filter((x) => x !== v)
@@ -364,11 +394,39 @@ export default function AdminDashboardPage() {
     })
   }
 
-  /* Create Link */
+  /* Create Link / Like Link */
   const handleCreateLink = () => {
     setCreatingLink(true)
     setError('')
     setLinkRuleErrors({})
+
+    if (linkTaskMode === 'like') {
+      api
+        .post('/admin/likelinks', {
+          title: linkTitle,
+          videoUrl: linkVideoUrl.trim(),
+          adminId,
+          target: Number(linkTarget),
+          amount: Number(linkAmount),
+          expireIn: Number(expireIn),
+          requireLike: true,
+        })
+        .then(() => {
+          setUploadOpen(false)
+          resetLinkForm('link')
+          Swal.fire('Created', 'Like link task created successfully.', 'success')
+        })
+        .catch((err) => {
+          setError(
+            err?.response?.data?.error ||
+            err?.response?.data?.message ||
+            'Failed to create like link task.'
+          )
+        })
+        .finally(() => setCreatingLink(false))
+
+      return
+    }
 
     const rules = {
       minComments: Number(minComments),
@@ -393,14 +451,7 @@ export default function AdminDashboardPage() {
       })
       .then(() => {
         setUploadOpen(false)
-        setLinkTitle('')
-        setLinkTarget('')
-        setLinkAmount('')
-        setExpireIn('')
-        setMinComments('2')
-        setMinReplies('2')
-        setRequireLike(false)
-
+        resetLinkForm('link')
         Swal.fire('Created', 'Link task created successfully.', 'success')
         router.push('/admin/link-history')
       })
@@ -408,7 +459,7 @@ export default function AdminDashboardPage() {
       .finally(() => setCreatingLink(false))
   }
 
-  /* Create Email Task (with Country + Category) */
+  /* Create Email Task */
   const handleCreateEmailTask = () => {
     setCreatingEmailTask(true)
     setError('')
@@ -449,14 +500,12 @@ export default function AdminDashboardPage() {
         adminId,
         targetUser: emailTargetUser,
         targetPerEmployee: targetPerEmpNum,
-        platform: emailPlatform, // 'youtube' | 'instagram' | 'tiktok'
+        platform: emailPlatform,
         amountPerPerson: amountNum,
         maxEmails: maxEmailsNum,
         expireIn: expireNum,
-
-        // ✅ NEW
-        countries: countriesPayload,     // ['ANY'] or ['US','IN']
-        categories: categoriesPayload,   // ['ANY'] or ['tech','beauty']
+        countries: countriesPayload,
+        categories: categoriesPayload,
       })
       .then(() => {
         setEmailTaskOpen(false)
@@ -493,8 +542,12 @@ export default function AdminDashboardPage() {
     try {
       await api.post('/admin/employees/approve', { employeeId: emp.employeeId })
       Swal.fire('Approved!', `${emp.name} can now log in.`, 'success')
-      setEmployees((prev) => prev.map((e) => (e.employeeId === emp.employeeId ? { ...e, isApproved: 1 } : e)))
-      setFiltered((prev) => prev.map((e) => (e.employeeId === emp.employeeId ? { ...e, isApproved: 1 } : e)))
+      setEmployees((prev) =>
+        prev.map((e) => (e.employeeId === emp.employeeId ? { ...e, isApproved: 1 } : e))
+      )
+      setFiltered((prev) =>
+        prev.map((e) => (e.employeeId === emp.employeeId ? { ...e, isApproved: 1 } : e))
+      )
     } catch {
       Swal.fire('Error', 'Could not approve employee.', 'error')
     }
@@ -558,8 +611,12 @@ export default function AdminDashboardPage() {
         note: notes,
       })
       Swal.fire('Success', 'Balance added!', 'success')
-      setEmployees((prev) => prev.map((e) => (e._id === selectedEmp._id ? { ...e, balance: e.balance + amount } : e)))
-      setFiltered((prev) => prev.map((e) => (e._id === selectedEmp._id ? { ...e, balance: e.balance + amount } : e)))
+      setEmployees((prev) =>
+        prev.map((e) => (e._id === selectedEmp._id ? { ...e, balance: e.balance + amount } : e))
+      )
+      setFiltered((prev) =>
+        prev.map((e) => (e._id === selectedEmp._id ? { ...e, balance: e.balance + amount } : e))
+      )
       setShowBalanceModal(false)
     } catch {
       Swal.fire('Error', 'Failed to update balance', 'error')
@@ -585,8 +642,12 @@ export default function AdminDashboardPage() {
         note: notes,
       })
       Swal.fire('Success', 'Balance updated!', 'success')
-      setEmployees((prev) => prev.map((e) => (e._id === selectedEmp._id ? { ...e, balance: amount } : e)))
-      setFiltered((prev) => prev.map((e) => (e._id === selectedEmp._id ? { ...e, balance: amount } : e)))
+      setEmployees((prev) =>
+        prev.map((e) => (e._id === selectedEmp._id ? { ...e, balance: amount } : e))
+      )
+      setFiltered((prev) =>
+        prev.map((e) => (e._id === selectedEmp._id ? { ...e, balance: amount } : e))
+      )
       setShowUpdateBalanceModal(false)
     } catch {
       Swal.fire('Error', 'Failed to update balance', 'error')
@@ -639,11 +700,13 @@ export default function AdminDashboardPage() {
   )
 
   const linkFormValid =
-    !!linkTitle &&
-    !!linkTarget &&
-    !!linkAmount &&
-    !!expireIn &&
-    !(Number(minComments) === 0 && Number(minReplies) === 0)
+    linkTaskMode === 'like'
+      ? !!linkTitle && !!linkVideoUrl && !!linkTarget && !!linkAmount && !!expireIn
+      : !!linkTitle &&
+      !!linkTarget &&
+      !!linkAmount &&
+      !!expireIn &&
+      !(Number(minComments) === 0 && Number(minReplies) === 0)
 
   const emailFormValid =
     !!emailTargetPerEmployee && !!emailAmountPerPerson && !!emailMaxCount && !!emailExpireIn
@@ -665,12 +728,16 @@ export default function AdminDashboardPage() {
             />
           </div>
 
-          <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)} className="flex items-center gap-1">
-            <PlusIcon className="h-4 w-4" /> New Link
+          <Button variant="outline" size="sm" onClick={openCreateLinkModal} className="flex items-center gap-1">
+            <PlusIcon className="h-4 w-4" /> Comment Task
+          </Button>
+
+          <Button variant="outline" size="sm" onClick={openCreateLikeLinkModal} className="flex items-center gap-1">
+            <PlusIcon className="h-4 w-4" /> Like Task
           </Button>
 
           <Button variant="outline" size="sm" onClick={() => setEmailTaskOpen(true)} className="flex items-center gap-1">
-            <PlusIcon className="h-4 w-4" /> New Email Task
+            <PlusIcon className="h-4 w-4" /> Email Task
           </Button>
 
           <Button variant="ghost" size="sm" onClick={handleLogout} className="flex items-center gap-1">
@@ -679,71 +746,128 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Create Link Modal */}
-      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+      {/* Create Link / Like Link Modal */}
+      <Dialog
+        open={uploadOpen}
+        onOpenChange={(open) => {
+          setUploadOpen(open)
+          if (!open) resetLinkForm('link')
+        }}
+      >
         <DialogPortal>
           <DialogOverlay className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm" />
           <DialogContent className={modalContainer}>
             <DialogHeader>
-              <DialogTitle>Create new shareable link</DialogTitle>
-              <DialogDescription>Give the link a short title and set target, amount, and expiry.</DialogDescription>
+              <DialogTitle>
+                {linkTaskMode === 'like' ? 'Create new like link' : 'Create new shareable link'}
+              </DialogTitle>
+              <DialogDescription>
+                {linkTaskMode === 'like'
+                  ? 'Enter title, YouTube video URL, target, amount, and expiry for the like task.'
+                  : 'Give the link a short title and set target, amount, and expiry.'}
+              </DialogDescription>
             </DialogHeader>
 
-            <Input placeholder="Link title" value={linkTitle} onChange={(e) => setLinkTitle(e.target.value)} className="w-full mt-4" />
-            <Input type="number" placeholder="Target (e.g. 100)" value={linkTarget} onChange={(e) => setLinkTarget(e.target.value)} className="w-full mt-4" />
-            <Input type="number" placeholder="Amount per person (e.g. 10)" value={linkAmount} onChange={(e) => setLinkAmount(e.target.value)} className="w-full mt-4" />
-            <Input type="number" placeholder="Expire in (hours)" value={expireIn} onChange={(e) => setExpireIn(e.target.value)} className="w-full mt-4" />
+            <Input
+              placeholder={linkTaskMode === 'like' ? 'Like link title' : 'Link title'}
+              value={linkTitle}
+              onChange={(e) => setLinkTitle(e.target.value)}
+              className="w-full mt-4"
+            />
 
-            {/* Verification rules */}
-            <div className="mt-4 border rounded-xl p-4 bg-gray-50">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold text-sm">Verification Rules</p>
-                <span className="text-xs text-gray-500">0–2 only</span>
-              </div>
+            {linkTaskMode === 'like' && (
+              <Input
+                type="url"
+                placeholder="YouTube video URL"
+                value={linkVideoUrl}
+                onChange={(e) => setLinkVideoUrl(e.target.value)}
+                className="w-full mt-4"
+              />
+            )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
-                <div>
-                  <label className="block text-xs font-medium mb-1">Min Comments</label>
-                  <Select value={minComments} onValueChange={(v) => setMinComments(v as '0' | '1' | '2')}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0">0</SelectItem>
-                      <SelectItem value="1">1</SelectItem>
-                      <SelectItem value="2">2</SelectItem>
-                    </SelectContent>
-                  </Select>
+            <Input
+              type="number"
+              placeholder={linkTaskMode === 'like' ? 'Total Like Required' : 'Target (number of people)'}
+              value={linkTarget}
+              onChange={(e) => setLinkTarget(e.target.value)}
+              className="w-full mt-4"
+            />
+
+            <Input
+              type="number"
+              placeholder="Amount per person (e.g. 10)"
+              value={linkAmount}
+              onChange={(e) => setLinkAmount(e.target.value)}
+              className="w-full mt-4"
+            />
+
+            <Input
+              type="number"
+              placeholder="Expire in (hours)"
+              value={expireIn}
+              onChange={(e) => setExpireIn(e.target.value)}
+              className="w-full mt-4"
+            />
+
+            {linkTaskMode === 'link' && (
+              <div className="mt-4 border rounded-xl p-4 bg-gray-50">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold text-sm">Verification Rules</p>
+                  <span className="text-xs text-gray-500">0–2 only</span>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium mb-1">Min Replies</label>
-                  <Select value={minReplies} onValueChange={(v) => setMinReplies(v as '0' | '1' | '2')}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0">0</SelectItem>
-                      <SelectItem value="1">1</SelectItem>
-                      <SelectItem value="2">2</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Min Comments</label>
+                    <Select value={minComments} onValueChange={(v) => setMinComments(v as '0' | '1' | '2')}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">0</SelectItem>
+                        <SelectItem value="1">1</SelectItem>
+                        <SelectItem value="2">2</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-medium mb-1">Require Like</label>
-                  <div className="flex items-center gap-2 mt-2">
-                    <input type="checkbox" checked={requireLike} onChange={(e) => setRequireLike(e.target.checked)} />
-                    <span className="text-sm text-gray-700">Yes</span>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Min Replies</label>
+                    <Select value={minReplies} onValueChange={(v) => setMinReplies(v as '0' | '1' | '2')}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">0</SelectItem>
+                        <SelectItem value="1">1</SelectItem>
+                        <SelectItem value="2">2</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Require Like</label>
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="checkbox"
+                        checked={requireLike}
+                        onChange={(e) => setRequireLike(e.target.checked)}
+                      />
+                      <span className="text-sm text-gray-700">Yes</span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {Number(minComments) === 0 && Number(minReplies) === 0 && (
-                <p className="text-xs text-red-600 mt-2">Min Comments and Min Replies cannot both be 0.</p>
-              )}
-              {linkRuleErrors.rules && <p className="text-xs text-red-600 mt-2">{linkRuleErrors.rules}</p>}
-            </div>
+                {Number(minComments) === 0 && Number(minReplies) === 0 && (
+                  <p className="text-xs text-red-600 mt-2">
+                    Min Comments and Min Replies cannot both be 0.
+                  </p>
+                )}
+                {linkRuleErrors.rules && (
+                  <p className="text-xs text-red-600 mt-2">{linkRuleErrors.rules}</p>
+                )}
+              </div>
+            )}
 
             <DialogFooter>
               <DialogClose asChild>
@@ -751,14 +875,14 @@ export default function AdminDashboardPage() {
               </DialogClose>
               <Button onClick={handleCreateLink} disabled={creatingLink || !linkFormValid}>
                 {creatingLink && <Loader2 className="animate-spin mr-2 h-4 w-4" />}
-                Create
+                {linkTaskMode === 'like' ? 'Create Like Link' : 'Create'}
               </Button>
             </DialogFooter>
           </DialogContent>
         </DialogPortal>
       </Dialog>
 
-      {/* Create Email Task Modal (with Countries + Categories) */}
+      {/* Create Email Task Modal */}
       <Dialog open={emailTaskOpen} onOpenChange={setEmailTaskOpen}>
         <DialogPortal>
           <DialogOverlay className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm" />
@@ -787,7 +911,9 @@ export default function AdminDashboardPage() {
                 onChange={(e) => setEmailTargetPerEmployee(e.target.value)}
                 className={`w-full ${emailErrors.targetPerEmployee ? 'border-red-500' : ''}`}
               />
-              {emailErrors.targetPerEmployee && <p className="text-xs text-red-600 mt-1">{emailErrors.targetPerEmployee}</p>}
+              {emailErrors.targetPerEmployee && (
+                <p className="text-xs text-red-600 mt-1">{emailErrors.targetPerEmployee}</p>
+              )}
             </div>
 
             <div className="mt-4">
@@ -814,7 +940,9 @@ export default function AdminDashboardPage() {
                 onChange={(e) => setEmailAmountPerPerson(e.target.value)}
                 className={`w-full ${emailErrors.amountPerPerson ? 'border-red-500' : ''}`}
               />
-              {emailErrors.amountPerPerson && <p className="text-xs text-red-600 mt-1">{emailErrors.amountPerPerson}</p>}
+              {emailErrors.amountPerPerson && (
+                <p className="text-xs text-red-600 mt-1">{emailErrors.amountPerPerson}</p>
+              )}
             </div>
 
             <div className="mt-4">
@@ -841,7 +969,6 @@ export default function AdminDashboardPage() {
               {emailErrors.expireIn && <p className="text-xs text-red-600 mt-1">{emailErrors.expireIn}</p>}
             </div>
 
-            {/* Countries (multi by repeated Select add) */}
             <div className="mt-5">
               <label className="block text-sm font-medium mb-1">Countries</label>
 
@@ -872,38 +999,6 @@ export default function AdminDashboardPage() {
                 Tip: select multiple countries one-by-one. Choosing “Any Country” clears restrictions.
               </p>
             </div>
-
-            {/* Categories (multi by repeated Select add) */}
-            {/* <div className="mt-5">
-              <label className="block text-sm font-medium mb-1">Categories</label>
-
-              <div className="flex flex-wrap gap-2 mb-2">
-                {selectedCategories.map((c) => (
-                  <Badge key={c} variant="secondary" className="flex items-center gap-1">
-                    {categoryLabel(c)}
-                    {c !== 'ANY' && (
-                      <button type="button" onClick={() => removeCategory(c)} className="ml-1 hover:opacity-80">
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </Badge>
-                ))}
-              </div>
-
-<SearchableAddSelect
-  options={CATEGORY_OPTIONS}
-  selected={selectedCategories}
-  buttonPlaceholder="Add a category (or Any Category)"
-  searchPlaceholder="Search category..."
-  onSelectValue={(v) => {
-    addCategory(v)
-  }}
-/>
-
-              <p className="text-xs text-gray-500 mt-1">
-                Tip: select multiple categories one-by-one. Choosing “Any Category” clears restrictions.
-              </p>
-            </div> */}
 
             <DialogFooter className="mt-6">
               <DialogClose asChild>
@@ -1029,7 +1124,9 @@ export default function AdminDashboardPage() {
                         {links.map((link) => (
                           <TableRow key={link._id} className="even:bg-gray-50">
                             <TableCell className="break-words">{link.title}</TableCell>
-                            <TableCell className="text-right">{format(new Date(link.createdAt), 'PPpp')}</TableCell>
+                            <TableCell className="text-right">
+                              {format(new Date(link.createdAt), 'PPpp')}
+                            </TableCell>
                             <TableCell>
                               <Button
                                 size="sm"

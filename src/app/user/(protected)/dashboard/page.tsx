@@ -19,10 +19,10 @@ import {
   LogOut as LogOutIcon,
   MailCheck as MailCheckIcon,
   X as XIcon,
+  Heart as HeartIcon,
 } from "lucide-react";
 
 import Swal from "sweetalert2";
-import "sweetalert2/dist/sweetalert2.min.css";
 
 /* ===================== Types ===================== */
 type CountryOption = { value: string; label?: string };
@@ -1415,11 +1415,22 @@ export default function Dashboard() {
       <header className="bg-white sticky top-0 z-20 shadow-sm px-4 sm:px-6 py-3 flex justify-between items-center">
         <h1 className="text-xl sm:text-2xl font-semibold truncate pr-3">Available Items</h1>
         <div className="flex items-center gap-2 sm:gap-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push("/user/like")}
+            className="gap-1 px-2 sm:px-3"
+          >
+            <HeartIcon className="h-4 w-4" />
+            <span className="hidden sm:inline">Like Task</span>
+          </Button>
+
           <Avatar className="cursor-pointer h-9 w-9 sm:h-10 sm:w-10" onClick={() => router.push("/user/my-account")}>
             <AvatarFallback>
               <UserIcon className="h-5 w-5 sm:h-6 sm:w-6" />
             </AvatarFallback>
           </Avatar>
+
           <Button variant="outline" size="sm" onClick={handleLogout} className="gap-1 px-2 sm:px-3">
             <LogOutIcon className="h-4 w-4" /> <span className="hidden sm:inline">Logout</span>
           </Button>

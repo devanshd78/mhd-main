@@ -13,9 +13,10 @@ import {
   LogOut as LogOutIcon,
   Users as UsersIcon,
   MailCheck as MailCheckIcon,
+  ExternalLink as ExternalLinkIcon,
+  Heart as HeartIcon,
 } from 'lucide-react';
 import Swal from 'sweetalert2';
-import 'sweetalert2/dist/sweetalert2.min.css';
 
 /* ===================== Types ===================== */
 
@@ -27,10 +28,25 @@ interface LinkItem {
   isLatest?: boolean;
   target: number;
   amount: number;
-  createdAt: string; // ISO
-  expireIn: number; // hours
-  expiresAt?: string; // ISO (optional)
+  createdAt: string;
+  expireIn: number;
+  expiresAt?: string;
   status?: 'active' | 'expired';
+}
+
+interface LikeLinkItem {
+  _id: string;
+  title: string;
+  videoUrl?: string;
+  createdBy?: string;
+  target: number;
+  amount: number;
+  createdAt: string;
+  expireIn: number;
+  expireAt?: string;
+  status?: 'active' | 'expired';
+  requireLike?: boolean;
+  isLatest?: boolean;
 }
 
 interface EmailTaskItem {
@@ -41,13 +57,11 @@ interface EmailTaskItem {
   targetPerEmployee: number;
   amountPerPerson: number;
   maxEmails: number;
-  expireIn: number; // hours
-  createdAt: string; // ISO
+  expireIn: number;
+  createdAt: string;
   isLatest?: boolean;
   status?: 'active' | 'expired';
   expiresAt?: string;
-
-  // ✅ NEW (as per latest API response)
   minFollowers?: number;
   maxFollowers?: number;
   countries?: CountryOption[];
@@ -82,6 +96,20 @@ type MergedItem =
       amount: number;
     }
   | {
+      kind: 'likeLink';
+      _id: string;
+      createdAt: string;
+      expireIn: number;
+      expireAt?: string;
+      status?: 'active' | 'expired';
+      isLatest?: boolean;
+      title: string;
+      target: number;
+      amount: number;
+      videoUrl?: string;
+      requireLike?: boolean;
+    }
+  | {
       kind: 'task';
       _id: string;
       createdAt: string;
@@ -94,8 +122,6 @@ type MergedItem =
       targetPerEmployee: number;
       amountPerPerson: number;
       maxEmails: number;
-
-      // ✅ NEW
       minFollowers?: number;
       maxFollowers?: number;
       countries?: CountryOption[];
@@ -131,7 +157,6 @@ const fmtCategories = (arr?: string[]) => {
   if (!Array.isArray(arr) || arr.length === 0) return 'Any';
   const up = arr.map((x) => String(x).toUpperCase());
   if (up.includes('ANY')) return 'Any';
-  // if backend sends "any"
   if (arr.some((x) => String(x).toLowerCase() === 'any')) return 'Any';
   return arr.join(', ');
 };
@@ -141,12 +166,14 @@ const fmtCategories = (arr?: string[]) => {
 export default function Dashboard() {
   const router = useRouter();
 
-  // Links state
   const [links, setLinks] = useState<LinkItem[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(true);
   const [errorLinks, setErrorLinks] = useState('');
 
-  // Email tasks state
+  const [likeLinks, setLikeLinks] = useState<LikeLinkItem[]>([]);
+  const [loadingLikeLinks, setLoadingLikeLinks] = useState(true);
+  const [errorLikeLinks, setErrorLikeLinks] = useState('');
+
   const [emailTasks, setEmailTasks] = useState<EmailTaskItem[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [errorTasks, setErrorTasks] = useState('');
@@ -155,14 +182,12 @@ export default function Dashboard() {
   const [balance, setBalance] = useState<number | null>(null);
   const [query, setQuery] = useState('');
 
-  // force re-render every second (countdown)
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // fetch balance
   useEffect(() => {
     const empId = localStorage.getItem('employeeId');
     if (!empId) return;
@@ -172,7 +197,6 @@ export default function Dashboard() {
       .catch((err) => console.error('Failed to fetch balance', err));
   }, []);
 
-  // fetch all links
   useEffect(() => {
     setLoadingLinks(true);
     api
@@ -182,7 +206,15 @@ export default function Dashboard() {
       .finally(() => setLoadingLinks(false));
   }, []);
 
-  // fetch email tasks
+  useEffect(() => {
+    setLoadingLikeLinks(true);
+    api
+      .get<LikeLinkItem[]>('/employee/likelinks', { withCredentials: true })
+      .then((res) => setLikeLinks(Array.isArray(res.data) ? res.data : []))
+      .catch((e) => setErrorLikeLinks(e.response?.data?.error || 'Failed to load like links.'))
+      .finally(() => setLoadingLikeLinks(false));
+  }, []);
+
   useEffect(() => {
     setLoadingTasks(true);
     api
@@ -191,8 +223,6 @@ export default function Dashboard() {
       .catch((e) => setErrorTasks(e.response?.data?.error || 'Failed to load email tasks.'))
       .finally(() => setLoadingTasks(false));
   }, []);
-
-  /* ===================== Utils ===================== */
 
   const copy = (txt: string) =>
     navigator.clipboard.writeText(txt).then(() =>
@@ -225,14 +255,25 @@ export default function Dashboard() {
     router.push(`/employee/links?id=${id}`);
   };
 
+  const goToLikeLink = (id: string) => {
+    setNavigatingId(id);
+    router.push(`/employee/view-link?id=${id}`);
+  };
+
   const openEmailTask = (taskId: string) => {
     setNavigatingId(taskId);
     router.push(`/employee/email-collection?task=${taskId}`);
   };
 
-  // Prefer expiresAt if present; otherwise compute via createdAt + expireIn hours
-  const getTimeLeft = (createdAt: string, expireIn: number, expiresAt?: string) => {
-    const expiryDate = expiresAt
+  const getTimeLeft = (
+    createdAt: string,
+    expireIn: number,
+    expiresAt?: string,
+    expireAt?: string
+  ) => {
+    const expiryDate = expireAt
+      ? new Date(expireAt)
+      : expiresAt
       ? new Date(expiresAt)
       : new Date(new Date(createdAt).getTime() + expireIn * 60 * 60 * 1000);
 
@@ -262,7 +303,6 @@ export default function Dashboard() {
       minute: '2-digit',
     });
 
-  // Search links
   const filteredLinks = useMemo(() => {
     if (!query.trim()) return links;
     const q = query.toLowerCase();
@@ -271,7 +311,16 @@ export default function Dashboard() {
     );
   }, [links, query]);
 
-  // Search email tasks (includes followers + country labels/values + categories)
+  const filteredLikeLinks = useMemo(() => {
+    if (!query.trim()) return likeLinks;
+    const q = query.toLowerCase();
+    return likeLinks.filter((l) =>
+      [l.title, l.videoUrl || '', String(l.target), String(l.amount)].some((v) =>
+        String(v).toLowerCase().includes(q)
+      )
+    );
+  }, [likeLinks, query]);
+
   const filteredTasks = useMemo(() => {
     if (!query.trim()) return emailTasks;
     const q = query.toLowerCase();
@@ -299,7 +348,6 @@ export default function Dashboard() {
     });
   }, [emailTasks, query]);
 
-  // Interleaved (newest first)
   const mergedItems = useMemo<MergedItem[]>(() => {
     const linkItems: MergedItem[] = filteredLinks.map((l) => ({
       kind: 'link',
@@ -312,6 +360,21 @@ export default function Dashboard() {
       title: l.title,
       target: l.target,
       amount: l.amount,
+    }));
+
+    const likeLinkItems: MergedItem[] = filteredLikeLinks.map((l) => ({
+      kind: 'likeLink',
+      _id: l._id,
+      createdAt: l.createdAt,
+      expireIn: l.expireIn,
+      expireAt: l.expireAt,
+      status: l.status,
+      isLatest: l.isLatest,
+      title: l.title,
+      target: l.target,
+      amount: l.amount,
+      videoUrl: l.videoUrl,
+      requireLike: l.requireLike,
     }));
 
     const taskItems: MergedItem[] = filteredTasks.map((t) => ({
@@ -327,26 +390,25 @@ export default function Dashboard() {
       targetPerEmployee: t.targetPerEmployee,
       amountPerPerson: t.amountPerPerson,
       maxEmails: t.maxEmails,
-
-      // ✅ NEW
       minFollowers: t.minFollowers,
       maxFollowers: t.maxFollowers,
       countries: t.countries,
       categories: t.categories,
     }));
 
-    return [...linkItems, ...taskItems].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [filteredLinks, filteredTasks]);
-
-  /* ===================== Render ===================== */
+    return [...linkItems, ...likeLinkItems, ...taskItems].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [filteredLinks, filteredLikeLinks, filteredTasks]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6 space-y-8">
-      {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">Employee Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Manage links, view entries, and complete email tasks.</p>
+          <p className="text-sm text-muted-foreground">
+            Manage links, like links, view entries, and complete email tasks.
+          </p>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -366,12 +428,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Search */}
       <div className="flex items-center gap-3">
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by title, platform, target, amount, country, followers…"
+          placeholder="Search by title, video URL, platform, target, amount, country, followers…"
           className="max-w-md"
         />
         <Badge variant="outline" className="bg-white">
@@ -379,7 +440,6 @@ export default function Dashboard() {
         </Badge>
       </div>
 
-      {/* All Items */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold">All Items</h2>
@@ -387,17 +447,25 @@ export default function Dashboard() {
         </div>
 
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
-          {loadingLinks || loadingTasks ? (
+          {loadingLinks || loadingLikeLinks || loadingTasks ? (
             Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={`sk-${i}`} />)
-          ) : errorLinks || errorTasks ? (
-            <Card className="p-6 text-center text-red-600 col-span-full">{errorLinks || errorTasks}</Card>
+          ) : errorLinks || errorLikeLinks || errorTasks ? (
+            <Card className="p-6 text-center text-red-600 col-span-full">
+              {errorLinks || errorLikeLinks || errorTasks}
+            </Card>
           ) : mergedItems.length === 0 ? (
             <Card className="p-10 text-center col-span-full">
               <p className="text-sm text-muted-foreground">Nothing here yet. Try adjusting your search.</p>
             </Card>
           ) : (
             mergedItems.map((item) => {
-              const { time, expired, hoursLeft, expiryDate } = getTimeLeft(item.createdAt, item.expireIn, item.expiresAt);
+              const { time, expired, hoursLeft, expiryDate } = getTimeLeft(
+                item.createdAt,
+                item.expireIn,
+                'expiresAt' in item ? item.expiresAt : undefined,
+                'expireAt' in item ? item.expireAt : undefined
+              );
+
               const state = expired ? 'closed' : hoursLeft <= 6 ? 'urgent' : 'active';
 
               if (item.kind === 'link') {
@@ -472,7 +540,89 @@ export default function Dashboard() {
                 );
               }
 
-              // kind === 'task'
+              if (item.kind === 'likeLink') {
+                return (
+                  <Card
+                    key={`like-${item._id}`}
+                    className={`relative p-6 space-y-4 transition ${
+                      state === 'active'
+                        ? 'bg-white border border-pink-200 hover:shadow-md'
+                        : state === 'urgent'
+                        ? 'bg-white border-amber-200 hover:shadow-md'
+                        : 'bg-white border border-gray-200 hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {!expired ? (
+                          <Badge className={state === 'urgent' ? 'bg-amber-500' : 'bg-pink-600'}>
+                            {state === 'urgent' ? 'Expiring soon' : 'Active'}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">Closed</Badge>
+                        )}
+                        <Badge variant="outline">Like Link</Badge>
+                        <Badge variant="outline">Target: {item.target}</Badge>
+                        <Badge variant="outline">₹{item.amount}/person</Badge>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-lg font-semibold break-words">{item.title}</p>
+                      {item.videoUrl ? (
+                        <a
+                          href={item.videoUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-blue-600 underline break-all inline-flex items-center gap-1 mt-1"
+                        >
+                          Open Video
+                          <ExternalLinkIcon className="h-3 w-3" />
+                        </a>
+                      ) : null}
+                      <p className="text-xs text-muted-foreground mt-1">Expires: {formatDateTime(expiryDate)}</p>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700 font-medium">⌛ Time left</span>
+                      <span
+                        className={`font-semibold ${
+                          expired ? 'text-gray-500' : state === 'urgent' ? 'text-amber-700' : 'text-pink-700'
+                        }`}
+                      >
+                        {!expired ? time : 'Expired'}
+                      </span>
+                    </div>
+
+                    <div className="border-t pt-4 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => goToLikeLink(item._id)}
+                        disabled={navigatingId === item._id}
+                        className="flex items-center gap-1"
+                      >
+                        {navigatingId === item._id ? (
+                          <span className="animate-spin h-4 w-4 border-t-2 border-gray-600 rounded-full" />
+                        ) : (
+                          <HeartIcon className="h-4 w-4" />
+                        )}
+                        View Entries
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => copy(item.title)}
+                        className="flex items-center gap-1 bg-white hover:bg-gray-50"
+                      >
+                        <ClipboardCopyIcon className="h-4 w-4" />
+                        Copy Title
+                      </Button>
+                    </div>
+                  </Card>
+                );
+              }
+
               const t = item as Extract<MergedItem, { kind: 'task' }>;
 
               return (
@@ -508,7 +658,6 @@ export default function Dashboard() {
                     <p className="text-xs text-muted-foreground">Expires: {formatDateTime(expiryDate)}</p>
                   </div>
 
-                  {/* ✅ NEW DETAILS (Followers + Country + Category) */}
                   <div className="rounded-lg border bg-gray-50 p-3 text-sm space-y-2">
                     <div className="flex justify-between gap-3">
                       <span className="text-gray-600">Followers</span>
