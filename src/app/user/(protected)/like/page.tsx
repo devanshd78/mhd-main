@@ -8,7 +8,11 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-import { Heart as HeartIcon, Upload as UploadIcon } from "lucide-react";
+import {
+    Heart as HeartIcon,
+    Upload as UploadIcon,
+    ExternalLink as ExternalLinkIcon,
+} from "lucide-react";
 import Swal from "sweetalert2";
 
 interface LikeTaskItem {
@@ -218,6 +222,19 @@ export default function LikePage() {
         fileRefs.current[taskId]?.click();
     };
 
+    const handleViewLink = async (item: LikeTaskItem) => {
+        if (!item.videoUrl) {
+            await Swal.fire({
+                icon: "warning",
+                title: "Link not available",
+                text: "No video link found for this task.",
+            });
+            return;
+        }
+
+        window.open(item.videoUrl, "_blank", "noopener,noreferrer");
+    };
+
     const handleSubmitScreenshot = async (
         e: React.ChangeEvent<HTMLInputElement>,
         item: LikeTaskItem
@@ -231,6 +248,7 @@ export default function LikePage() {
                 title: "Login required",
                 text: "User ID not found. Please log in again.",
             });
+            e.target.value = "";
             return;
         }
 
@@ -447,7 +465,7 @@ export default function LikePage() {
                                                 onClick={() => handleGoogleAuth(item)}
                                                 disabled={authDisabled}
                                             >
-                                                <span className="flex items-center justify-center gap-3 w-full">
+                                                <span className="flex items-center justify-center gap-3 w-full cursor-pointer">
                                                     <svg
                                                         xmlns="http://www.w3.org/2000/svg"
                                                         viewBox="0 0 48 48"
@@ -486,7 +504,7 @@ export default function LikePage() {
                                             />
 
                                             <Button
-                                                className="w-full"
+                                                className="w-full cursor-pointer"
                                                 size="sm"
                                                 onClick={() => handleChooseScreenshot(item._id)}
                                                 disabled={submitDisabled}
@@ -495,10 +513,18 @@ export default function LikePage() {
                                                 {busyTaskId === item._id ? "Submitting..." : "Submit Screenshot"}
                                             </Button>
 
-                                            <Button className="w-full" size="sm" disabled>
-                                                <HeartIcon className="h-4 w-4 mr-2" />
-                                                Like Required
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="w-full cursor-pointer"
+                                                size="sm"
+                                                onClick={() => handleViewLink(item)}
+                                                disabled={!item.videoUrl}
+                                            >
+                                                <ExternalLinkIcon className="h-4 w-4 mr-2" />
+                                                View Link
                                             </Button>
+
                                         </div>
                                     </CardFooter>
                                 </Card>
