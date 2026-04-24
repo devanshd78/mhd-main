@@ -123,7 +123,7 @@ export default function LikePage() {
                 Swal.fire({
                     icon: "success",
                     title: "Google authenticated",
-                    text: `Authenticated with ${data.email}. Complete the like + screenshot upload in 5 minutes.`,
+                    text: `Authenticated with ${data.email}. Complete the like + screenshot upload in 2 minutes.`,
                 });
                 fetchStatuses();
             }
@@ -202,8 +202,8 @@ export default function LikePage() {
 
         await Swal.fire({
             icon: "info",
-            title: "5 minute timer",
-            text: "You have to complete the full process in 5 minutes after Google authentication.",
+            title: "2 minute timer",
+            text: "You have to complete the full process in 2 minutes after Google authentication.",
             confirmButtonText: "Continue",
         });
 
@@ -269,7 +269,7 @@ export default function LikePage() {
             await Swal.fire({
                 icon: "warning",
                 title: "Timer expired",
-                text: "The 5 minute upload window is over. Authenticate again.",
+                text: "The 2 minute upload window is over. Authenticate again.",
             });
             e.target.value = "";
             return;
