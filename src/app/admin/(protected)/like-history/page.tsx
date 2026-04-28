@@ -23,6 +23,8 @@ interface LikeLinkItem {
     videoUrl: string
     createdBy?: string
     createdAt?: string
+    expireAt?: string
+    status?: string
     target: number
     amount: number
     expireIn: number
@@ -150,16 +152,52 @@ export default function LikeLinkHistoryPage() {
         })
     }
 
-    const getCreatedAt = (link: LikeLinkItem) => {
-        if (link.createdAt) return new Date(link.createdAt).toLocaleString()
+    const formatDate = (value?: string | number | Date) => {
+        if (!value) return '-'
 
-        const ts = parseInt(link._id.substring(0, 8), 16) * 1000
-        return new Date(ts).toLocaleString()
+        const date = new Date(value)
+
+        if (Number.isNaN(date.getTime())) return '-'
+
+        return date.toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            dateStyle: 'medium',
+            timeStyle: 'short',
+        })
+    }
+
+    const getCreatedAtDate = (link: LikeLinkItem) => {
+        if (link.createdAt) {
+            const createdDate = new Date(link.createdAt)
+
+            if (!Number.isNaN(createdDate.getTime())) {
+                return createdDate
+            }
+        }
+
+        if (link._id && link._id.length >= 8) {
+            const ts = parseInt(link._id.substring(0, 8), 16) * 1000
+            return new Date(ts)
+        }
+
+        return null
+    }
+
+    const getCreatedAt = (link: LikeLinkItem) => {
+        const createdDate = getCreatedAtDate(link)
+        return createdDate ? formatDate(createdDate) : '-'
     }
 
     const getExpireAt = (link: LikeLinkItem) => {
-        const createdAt = new Date(getCreatedAt(link)).getTime()
-        return new Date(createdAt + Number(link.expireIn || 0) * 3600 * 1000).toLocaleString()
+        if (link.expireAt) {
+            return formatDate(link.expireAt)
+        }
+
+        const createdDate = getCreatedAtDate(link)
+
+        if (!createdDate) return '-'
+
+        return formatDate(createdDate.getTime() + Number(link.expireIn || 0) * 3600 * 1000)
     }
 
     if (loading) {
@@ -312,6 +350,9 @@ export default function LikeLinkHistoryPage() {
                                 Created At
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Expiring At
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Actions
                             </th>
                         </tr>
@@ -341,6 +382,10 @@ export default function LikeLinkHistoryPage() {
 
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                     {getCreatedAt(link)}
+                                </td>
+
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                    {getExpireAt(link)}
                                 </td>
 
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
