@@ -1,18 +1,24 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/axios";
 
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
+import {
+    Card,
+    CardHeader,
+    CardTitle,
+    CardContent,
+    CardFooter,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 import {
     Heart as HeartIcon,
-    Upload as UploadIcon,
     ExternalLink as ExternalLinkIcon,
 } from "lucide-react";
+
 import Swal from "sweetalert2";
 
 interface LikeTaskItem {
@@ -42,7 +48,6 @@ interface LikeTaskStatus {
 
 export default function LikePage() {
     const router = useRouter();
-    const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
     const [tasks, setTasks] = useState<LikeTaskItem[]>([]);
     const [statusMap, setStatusMap] = useState<Record<string, LikeTaskStatus>>({});
@@ -52,18 +57,23 @@ export default function LikePage() {
     const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
 
     const userId =
-        typeof window !== "undefined" ? localStorage.getItem("userId") || "" : "";
+        typeof window !== "undefined"
+            ? localStorage.getItem("userId") || ""
+            : "";
 
     useEffect(() => {
-        const t = setInterval(() => setNow(Date.now()), 1000);
-        return () => clearInterval(t);
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
     }, []);
 
     const fetchLikeTasks = useCallback(async () => {
         try {
             setLoading(true);
 
-            const res = await api.get("/admin/likelinks", { withCredentials: true });
+            const res = await api.get("/admin/likelinks", {
+                withCredentials: true,
+            });
+
             const payload = res.data;
 
             const list = Array.isArray(payload)
@@ -77,7 +87,11 @@ export default function LikePage() {
             setTasks(list as LikeTaskItem[]);
             setError("");
         } catch (err: any) {
-            setError(err?.response?.data?.error || err?.response?.data?.message || "Unable to load like tasks.");
+            setError(
+                err?.response?.data?.error ||
+                err?.response?.data?.message ||
+                "Unable to load like tasks."
+            );
         } finally {
             setLoading(false);
         }
@@ -123,8 +137,10 @@ export default function LikePage() {
                 Swal.fire({
                     icon: "success",
                     title: "Google authenticated",
-                    text: `Authenticated with ${data.email}. Complete the like + screenshot upload in 2 minutes.`,
+                    text: `Authenticated with ${data.email}. Like the YouTube video with the same account, then come back and click Verify Like.`,
+                    confirmButtonText: "Okay",
                 });
+
                 fetchStatuses();
             }
 
@@ -134,6 +150,8 @@ export default function LikePage() {
                     title: "Authentication failed",
                     text: data.message || "Google authentication failed",
                 });
+
+                fetchStatuses();
             }
         };
 
@@ -142,25 +160,43 @@ export default function LikePage() {
     }, [fetchStatuses]);
 
     const getOverallTimeLeft = (createdAt: string, expireIn: number = 0) => {
-        const expiry = new Date(new Date(createdAt).getTime() + expireIn * 3600 * 1000);
+        const expiry = new Date(
+            new Date(createdAt).getTime() + expireIn * 3600 * 1000
+        );
+
         const diff = expiry.getTime() - now;
 
-        if (diff <= 0) return { expired: true, label: "Expired" } as const;
+        if (diff <= 0) {
+            return {
+                expired: true,
+                label: "Expired",
+            } as const;
+        }
 
         const hrs = Math.floor(diff / 3600000);
         const mins = Math.floor((diff % 3600000) / 60000);
 
-        return { expired: false, label: `${hrs}h ${mins}m` } as const;
+        return {
+            expired: false,
+            label: `${hrs}h ${mins}m`,
+        } as const;
     };
 
     const getTaskTimer = (status?: LikeTaskStatus) => {
         if (!status?.activeAuthExpiresAt) {
-            return { active: false, label: "00:00" };
+            return {
+                active: false,
+                label: "00:00",
+            };
         }
 
         const diff = new Date(status.activeAuthExpiresAt).getTime() - now;
+
         if (diff <= 0) {
-            return { active: false, label: "00:00" };
+            return {
+                active: false,
+                label: "00:00",
+            };
         }
 
         const mins = Math.floor(diff / 60000);
@@ -184,6 +220,7 @@ export default function LikePage() {
                 title: "Login required",
                 text: "User ID not found. Please log in again.",
             });
+
             return;
         }
 
@@ -191,23 +228,26 @@ export default function LikePage() {
         const timer = getTaskTimer(status);
 
         if (status?.locked) return;
+
         if (timer.active) {
             await Swal.fire({
                 icon: "info",
                 title: "Finish current attempt first",
-                text: `Upload screenshot for ${status?.activeEmail} before starting another email.`,
+                text: `Like the video using ${status?.activeEmail}, then click Verify Like.`,
             });
+
             return;
         }
 
         await Swal.fire({
             icon: "info",
             title: "2 minute timer",
-            text: "You have to complete the full process in 2 minutes after Google authentication.",
+            text: "After Google authentication, like the YouTube video with the same account and click Verify Like within 2 minutes.",
             confirmButtonText: "Continue",
         });
 
         const baseUrl = getBackendBaseUrl();
+
         const popupUrl =
             `${baseUrl}/like-task/google/start?userId=${encodeURIComponent(userId)}&likeLinkId=${encodeURIComponent(item._id)}`;
 
@@ -218,10 +258,6 @@ export default function LikePage() {
         );
     };
 
-    const handleChooseScreenshot = (taskId: string) => {
-        fileRefs.current[taskId]?.click();
-    };
-
     const handleViewLink = async (item: LikeTaskItem) => {
         if (!item.videoUrl) {
             await Swal.fire({
@@ -229,26 +265,21 @@ export default function LikePage() {
                 title: "Link not available",
                 text: "No video link found for this task.",
             });
+
             return;
         }
 
         window.open(item.videoUrl, "_blank", "noopener,noreferrer");
     };
 
-    const handleSubmitScreenshot = async (
-        e: React.ChangeEvent<HTMLInputElement>,
-        item: LikeTaskItem
-    ) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
+    const handleVerifyYoutubeLike = async (item: LikeTaskItem) => {
         if (!userId) {
             await Swal.fire({
                 icon: "warning",
                 title: "Login required",
                 text: "User ID not found. Please log in again.",
             });
-            e.target.value = "";
+
             return;
         }
 
@@ -261,7 +292,7 @@ export default function LikePage() {
                 title: "Authenticate first",
                 text: "Please complete Google authentication first.",
             });
-            e.target.value = "";
+
             return;
         }
 
@@ -269,44 +300,64 @@ export default function LikePage() {
             await Swal.fire({
                 icon: "warning",
                 title: "Timer expired",
-                text: "The 2 minute upload window is over. Authenticate again.",
+                text: "The verification window is over. Please authenticate again.",
             });
-            e.target.value = "";
+
+            await fetchStatuses();
             return;
         }
 
         try {
             setBusyTaskId(item._id);
 
-            const formData = new FormData();
-            formData.append("taskId", status.taskId);
-            formData.append("userId", userId);
-            formData.append("likeLinkId", item._id);
-            formData.append("screenshot", file);
-
-            const res = await api.post("/like-task/submit", formData, {
-                withCredentials: true,
-                headers: { "Content-Type": "multipart/form-data" },
-            });
+            const res = await api.post(
+                "/like-task/submit",
+                {
+                    taskId: status.taskId,
+                    userId,
+                    likeLinkId: item._id,
+                },
+                {
+                    withCredentials: true,
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
 
             await Swal.fire({
                 icon: "success",
-                title: "Verified",
-                text: res.data?.message || "Screenshot verified successfully",
+                title: "Like detected",
+                text:
+                    res.data?.message ||
+                    `Like detected for ${res.data?.email || status.activeEmail || "this email"}.`,
             });
 
             await fetchStatuses();
-            e.target.value = "";
         } catch (err: any) {
+            const errorMessage =
+                err?.response?.data?.error ||
+                err?.response?.data?.message ||
+                err?.response?.data?.verification?.reason ||
+                "Unable to verify YouTube like.";
+
+            const reason =
+                err?.response?.data?.verification?.reason ||
+                err?.response?.data?.verification?.rating ||
+                "";
+
             await Swal.fire({
                 icon: "error",
-                title: "Verification failed",
-                text:
-                    err?.response?.data?.error ||
-                    err?.response?.data?.verification?.reason ||
-                    "Unable to verify screenshot",
+                title:
+                    errorMessage === "Duplicate email detected"
+                        ? "Duplicate email detected"
+                        : errorMessage === "Like not detected"
+                            ? "Like not detected"
+                            : "Verification failed",
+                text: reason ? `${errorMessage}: ${reason}` : errorMessage,
             });
-            e.target.value = "";
+
+            await fetchStatuses();
         } finally {
             setBusyTaskId(null);
         }
@@ -315,17 +366,27 @@ export default function LikePage() {
     const renderedTasks = useMemo(() => tasks, [tasks]);
 
     if (loading) {
-        return <div className="flex justify-center items-center h-[60vh] text-sm">Loading...</div>;
+        return (
+            <div className="flex justify-center items-center h-[60vh] text-sm">
+                Loading...
+            </div>
+        );
     }
 
     if (error) {
-        return <div className="text-center text-red-600 py-10 px-4">{error}</div>;
+        return (
+            <div className="text-center text-red-600 py-10 px-4">
+                {error}
+            </div>
+        );
     }
 
     return (
         <>
             <header className="bg-white sticky top-0 z-20 shadow-sm px-4 sm:px-6 py-3 flex justify-between items-center">
-                <h1 className="text-xl sm:text-2xl font-semibold truncate pr-3">Like Tasks</h1>
+                <h1 className="text-xl sm:text-2xl font-semibold truncate pr-3">
+                    Like Tasks
+                </h1>
 
                 <div className="flex items-center gap-2 sm:gap-4">
                     <Button
@@ -348,7 +409,11 @@ export default function LikePage() {
                     ) : (
                         renderedTasks.map((item) => {
                             const status = statusMap[item._id];
-                            const { expired, label } = getOverallTimeLeft(item.createdAt, item.expireIn ?? 0);
+                            const { expired, label } = getOverallTimeLeft(
+                                item.createdAt,
+                                item.expireIn ?? 0
+                            );
+
                             const timer = getTaskTimer(status);
 
                             const authDisabled =
@@ -357,7 +422,7 @@ export default function LikePage() {
                                 timer.active ||
                                 busyTaskId === item._id;
 
-                            const submitDisabled =
+                            const verifyDisabled =
                                 expired ||
                                 !timer.active ||
                                 !status?.taskId ||
@@ -398,20 +463,28 @@ export default function LikePage() {
                                         {typeof item.target === "number" && (
                                             <div className="flex justify-between gap-4">
                                                 <span>Target</span>
-                                                <span className="font-medium shrink-0">{item.target}</span>
+                                                <span className="font-medium shrink-0">
+                                                    {item.target}
+                                                </span>
                                             </div>
                                         )}
 
                                         {typeof item.amount === "number" && (
                                             <div className="flex justify-between gap-4">
                                                 <span>Amount</span>
-                                                <span className="font-semibold shrink-0">₹{item.amount}</span>
+                                                <span className="font-semibold shrink-0">
+                                                    ₹{item.amount}
+                                                </span>
                                             </div>
                                         )}
 
                                         <div className="flex justify-between gap-4">
                                             <span>Expires</span>
-                                            <span className={`shrink-0 ${expired ? "text-gray-400" : "text-green-600"}`}>
+                                            <span
+                                                className={`shrink-0 ${
+                                                    expired ? "text-gray-400" : "text-green-600"
+                                                }`}
+                                            >
                                                 {label}
                                             </span>
                                         </div>
@@ -432,10 +505,17 @@ export default function LikePage() {
 
                                         {status?.completedEmails?.length ? (
                                             <div className="pt-2 border-t space-y-1">
-                                                <div className="text-xs text-muted-foreground">Completed emails</div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    Completed emails
+                                                </div>
+
                                                 <div className="flex flex-wrap gap-2">
                                                     {status.completedEmails.map((email) => (
-                                                        <Badge key={email} variant="secondary" className="text-[11px]">
+                                                        <Badge
+                                                            key={email}
+                                                            variant="secondary"
+                                                            className="text-[11px]"
+                                                        >
                                                             {email}
                                                         </Badge>
                                                     ))}
@@ -451,7 +531,7 @@ export default function LikePage() {
 
                                         {timer.active && (
                                             <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-700 px-3 py-2 text-xs">
-                                                You must upload the screenshot within {timer.label}.
+                                                Like the video using the authenticated account, then click Verify Like within {timer.label}.
                                             </div>
                                         )}
                                     </CardContent>
@@ -493,24 +573,16 @@ export default function LikePage() {
                                                 </span>
                                             </Button>
 
-                                            <input
-                                                ref={(el) => {
-                                                    fileRefs.current[item._id] = el;
-                                                }}
-                                                type="file"
-                                                accept="image/*"
-                                                className="hidden"
-                                                onChange={(e) => handleSubmitScreenshot(e, item)}
-                                            />
-
                                             <Button
                                                 className="w-full cursor-pointer"
                                                 size="sm"
-                                                onClick={() => handleChooseScreenshot(item._id)}
-                                                disabled={submitDisabled}
+                                                onClick={() => handleVerifyYoutubeLike(item)}
+                                                disabled={verifyDisabled}
                                             >
-                                                <UploadIcon className="h-4 w-4 mr-2" />
-                                                {busyTaskId === item._id ? "Submitting..." : "Submit Screenshot"}
+                                                <HeartIcon className="h-4 w-4 mr-2" />
+                                                {busyTaskId === item._id
+                                                    ? "Checking Like..."
+                                                    : "Verify Like"}
                                             </Button>
 
                                             <Button
@@ -524,7 +596,6 @@ export default function LikePage() {
                                                 <ExternalLinkIcon className="h-4 w-4 mr-2" />
                                                 View Link
                                             </Button>
-
                                         </div>
                                     </CardFooter>
                                 </Card>
