@@ -115,8 +115,8 @@ export default function LikePage() {
             });
 
             setStatusMap(map);
-        } catch {
-            // keep silent
+        } catch (err: any) {
+            console.error("Failed to fetch like task statuses:", err?.response?.data || err);
         }
     }, [userId]);
 
@@ -135,10 +135,39 @@ export default function LikePage() {
             if (!data || typeof data !== "object") return;
 
             if (data.type === "LIKE_TASK_AUTH_SUCCESS") {
+                const likeLinkId = String(data.likeLinkId || "");
+                const taskId = String(data.taskId || "");
+                const email = String(data.email || "");
+                const authExpiresAt = String(data.authExpiresAt || "");
+
+                if (likeLinkId && taskId && authExpiresAt) {
+                    setStatusMap((prev) => {
+                        const oldStatus = prev[likeLinkId];
+
+                        return {
+                            ...prev,
+                            [likeLinkId]: {
+                                taskId,
+                                userId,
+                                likeLinkId,
+                                maxEmailsAllowed:
+                                    oldStatus?.maxEmailsAllowed ||
+                                    Number(tasks.find((task) => task._id === likeLinkId)?.target || 1),
+                                completedCount: oldStatus?.completedCount || 0,
+                                completedEmails: oldStatus?.completedEmails || [],
+                                activeEmail: email || oldStatus?.activeEmail || null,
+                                activeAuthExpiresAt: authExpiresAt,
+                                authWindowSeconds: oldStatus?.authWindowSeconds || 120,
+                                locked: oldStatus?.locked || false,
+                            },
+                        };
+                    });
+                }
+
                 Swal.fire({
                     icon: "success",
                     title: "Google authenticated",
-                    text: `Authenticated with ${data.email}. Like the YouTube video with the same account, then come back and click Verify Like.`,
+                    text: `Authenticated with ${email}. Like the YouTube video with the same account, then come back and click Verify Like.`,
                     confirmButtonText: "Okay",
                 });
 
