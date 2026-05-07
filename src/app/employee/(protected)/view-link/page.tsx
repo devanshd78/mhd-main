@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import api from "@/lib/axios";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,6 +47,15 @@ interface EntryItem {
   updatedAt?: string;
 }
 
+interface PaginationInfo {
+  page: number;
+  limit: number;
+  totalEntries: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
 interface LikeLinkResponse {
   likeLink?: {
     _id: string;
@@ -58,80 +67,115 @@ interface LikeLinkResponse {
     requireLike?: boolean;
     createdAt?: string;
   } | null;
-  totalEntries?: number;
+  pagination?: PaginationInfo;
   entries?: EntryItem[];
 }
 
 export default function EmployeeLikeLinkEntriesPage() {
   const params = useSearchParams();
   const router = useRouter();
+
   const linkId = params.get("id");
+
   const employeeId =
     (typeof window !== "undefined" && localStorage.getItem("employeeId")) || "";
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
   const [likeLink, setLikeLink] = useState<LikeLinkResponse["likeLink"]>(null);
   const [entries, setEntries] = useState<EntryItem[]>([]);
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1,
+    limit: 10,
+    totalEntries: 0,
+    totalPages: 0,
+    hasNextPage: false,
+    hasPrevPage: false,
+  });
+
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
-  const fetchEntries = async () => {
-    if (!linkId) return;
+  const fetchEntries = useCallback(
+    async (pageNumber = pagination.page, pageLimit = pagination.limit) => {
+      if (!linkId) return;
 
-    setLoading(true);
-    setError("");
+      if (!employeeId) {
+        setLoading(false);
+        setError("Employee ID not found. Please login again.");
+        return;
+      }
 
-    try {
-      const res = await api.post<LikeLinkResponse>(
-        "/like-task/view-entries",
-        { linkId },
-        { withCredentials: true }
-      );
+      setLoading(true);
+      setError("");
 
-      const likeLinkData = res.data?.likeLink || null;
-      const entryRows = Array.isArray(res.data?.entries) ? res.data.entries : [];
+      try {
+        const res = await api.post<LikeLinkResponse>(
+          "/like-task/employee-view-entries",
+          {
+            linkId,
+            employeeId,
+            page: pageNumber,
+            limit: pageLimit,
+          },
+          { withCredentials: true }
+        );
 
-      setLikeLink(likeLinkData);
-      setEntries(entryRows);
+        const likeLinkData = res.data?.likeLink || null;
+        const entryRows = Array.isArray(res.data?.entries) ? res.data.entries : [];
 
-      const initialOpen: Record<string, boolean> = {};
-      entryRows.forEach((entry) => {
-        initialOpen[entry._id] = openRows[entry._id] ?? false;
-      });
-      setOpenRows(initialOpen);
-    } catch (err: any) {
-      setError(err?.response?.data?.error || "Failed to load entries.");
-    } finally {
-      setLoading(false);
-    }
-  };
+        setLikeLink(likeLinkData);
+        setEntries(entryRows);
+
+        setPagination(
+          res.data?.pagination || {
+            page: pageNumber,
+            limit: pageLimit,
+            totalEntries: entryRows.length,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPrevPage: pageNumber > 1,
+          }
+        );
+
+        const initialOpen: Record<string, boolean> = {};
+        entryRows.forEach((entry) => {
+          initialOpen[entry._id] = openRows[entry._id] ?? false;
+        });
+        setOpenRows(initialOpen);
+      } catch (err: any) {
+        setError(
+          err?.response?.data?.error ||
+            err?.response?.data?.message ||
+            "Failed to load entries."
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [linkId, employeeId, pagination.page, pagination.limit, openRows]
+  );
 
   useEffect(() => {
-    fetchEntries();
+    fetchEntries(1, pagination.limit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkId]);
-
-  const sortedEntries = useMemo(() => {
-    return [...entries].sort((a, b) => {
-      const nameA = (a.user?.name || a.user?.email || a.userId || "").toLowerCase();
-      const nameB = (b.user?.name || b.user?.email || b.userId || "").toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
-  }, [entries]);
+  }, [linkId, employeeId]);
 
   const totals = useMemo(() => {
-    return sortedEntries.reduce(
+    return entries.reduce(
       (acc, entry) => {
         acc.users += 1;
         acc.completed += Number(entry.completedCount || 0);
         acc.pending += Number(entry.pendingCount || 0);
-        acc.totalEmails += Array.isArray(entry.emailSlots) ? entry.emailSlots.length : 0;
+        acc.totalEmails += Array.isArray(entry.emailSlots)
+          ? entry.emailSlots.length
+          : 0;
         return acc;
       },
       { users: 0, completed: 0, pending: 0, totalEmails: 0 }
     );
-  }, [sortedEntries]);
+  }, [entries]);
 
   const getEntryTarget = (entry?: EntryItem) => {
     const entryLimit = Number(entry?.maxEmailsAllowed || 0);
@@ -172,7 +216,7 @@ export default function EmployeeLikeLinkEntriesPage() {
         timerProgressBar: true,
       });
 
-      await fetchEntries();
+      await fetchEntries(pagination.page, pagination.limit);
     } catch (err: any) {
       Swal.fire({
         toast: true,
@@ -189,6 +233,18 @@ export default function EmployeeLikeLinkEntriesPage() {
     } finally {
       setActionLoadingId(null);
     }
+  };
+
+  const handlePageChange = async (newPage: number) => {
+    if (newPage < 1) return;
+    if (pagination.totalPages > 0 && newPage > pagination.totalPages) return;
+
+    await fetchEntries(newPage, pagination.limit);
+  };
+
+  const handleLimitChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const newLimit = Number(event.target.value || 10);
+    await fetchEntries(1, newLimit);
   };
 
   if (!linkId) {
@@ -229,7 +285,8 @@ export default function EmployeeLikeLinkEntriesPage() {
 
           <div className="flex flex-wrap gap-3 text-sm text-gray-600">
             <span>Target: {targetCount}</span>
-            <span>Users: {totals.users}</span>
+            <span>Total Entries: {pagination.totalEntries}</span>
+            <span>This Page Users: {totals.users}</span>
             <span>Completed: {totals.completed}</span>
             <span>Pending: {totals.pending}</span>
             <span>Total Auth Emails: {totals.totalEmails}</span>
@@ -241,20 +298,62 @@ export default function EmployeeLikeLinkEntriesPage() {
         </Button>
       </div>
 
-      {sortedEntries.length === 0 ? (
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border rounded-xl px-4 py-3 bg-white">
+        <div className="text-sm text-gray-600">
+          Page {pagination.page} of {pagination.totalPages || 1}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <select
+            value={pagination.limit}
+            onChange={handleLimitChange}
+            className="border rounded-md px-2 py-1 text-sm bg-white"
+          >
+            <option value={5}>5 / page</option>
+            <option value={10}>10 / page</option>
+            <option value={20}>20 / page</option>
+            <option value={50}>50 / page</option>
+          </select>
+
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!pagination.hasPrevPage}
+            onClick={() => handlePageChange(pagination.page - 1)}
+          >
+            Prev
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!pagination.hasNextPage}
+            onClick={() => handlePageChange(pagination.page + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+
+      {entries.length === 0 ? (
         <Card>
           <CardContent className="p-6 text-center text-gray-500">
-            No entries found for this like link.
+            No entries found for this like link under this employee.
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-4">
-          {sortedEntries.map((entry) => {
+          {entries.map((entry) => {
             const isOpen = !!openRows[entry._id];
+
             const displayName =
-              entry.user?.name || entry.user?.email || entry.userId || "Unknown User";
+              entry.user?.name ||
+              entry.user?.email ||
+              entry.userId ||
+              "Unknown User";
 
             const entryTarget = getEntryTarget(entry);
+
             const targetReached =
               entryTarget > 0 && Number(entry.completedCount || 0) >= entryTarget;
 
@@ -464,6 +563,35 @@ export default function EmployeeLikeLinkEntriesPage() {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {entries.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border rounded-xl px-4 py-3 bg-white">
+          <div className="text-sm text-gray-600">
+            Showing page {pagination.page} of {pagination.totalPages || 1} — Total{" "}
+            {pagination.totalEntries} entries
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!pagination.hasPrevPage}
+              onClick={() => handlePageChange(pagination.page - 1)}
+            >
+              Prev
+            </Button>
+
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!pagination.hasNextPage}
+              onClick={() => handlePageChange(pagination.page + 1)}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>
