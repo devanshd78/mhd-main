@@ -33,6 +33,7 @@ interface EntryItem {
   userId: string;
   status?: number | null;
   amount?: number;
+  maxEmailsAllowed?: number;
   user?: {
     userId: string;
     name?: string;
@@ -132,6 +133,18 @@ export default function EmployeeLikeLinkEntriesPage() {
     );
   }, [sortedEntries]);
 
+  const getEntryTarget = (entry?: EntryItem) => {
+    const entryLimit = Number(entry?.maxEmailsAllowed || 0);
+    const linkTarget = Number(likeLink?.target || 0);
+
+    if (entryLimit > 0) return entryLimit;
+    if (linkTarget > 0) return linkTarget;
+
+    return 0;
+  };
+
+  const targetCount = Number(likeLink?.target || 0);
+
   const toggleRow = (id: string) => {
     setOpenRows((prev) => ({
       ...prev,
@@ -194,8 +207,6 @@ export default function EmployeeLikeLinkEntriesPage() {
     return <p className="p-6 text-center text-red-500">{error}</p>;
   }
 
-  const targetCount = Number(likeLink?.target || 0);
-
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -243,9 +254,16 @@ export default function EmployeeLikeLinkEntriesPage() {
             const displayName =
               entry.user?.name || entry.user?.email || entry.userId || "Unknown User";
 
-            const targetReached = targetCount > 0 && entry.completedCount >= targetCount;
+            const entryTarget = getEntryTarget(entry);
+            const targetReached =
+              entryTarget > 0 && Number(entry.completedCount || 0) >= entryTarget;
+
             const finalStatusSet = entry.status === 1 || entry.status === 0;
-            const actionDisabled = !targetReached || finalStatusSet || actionLoadingId === entry.taskId;
+
+            const actionDisabled =
+              !targetReached ||
+              finalStatusSet ||
+              actionLoadingId === entry.taskId;
 
             return (
               <Card key={entry._id} className="overflow-hidden">
@@ -265,17 +283,23 @@ export default function EmployeeLikeLinkEntriesPage() {
                       </div>
 
                       <div className="min-w-0">
-                        <p className="font-semibold text-base break-words">{displayName}</p>
+                        <p className="font-semibold text-base break-words">
+                          {displayName}
+                        </p>
+
                         <p className="text-sm text-gray-600 break-all">
                           {entry.user?.email || entry.userId}
                         </p>
 
                         <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-600">
                           <span>
-                            Completed: {entry.completedCount}/{targetCount || 0}
+                            Completed: {entry.completedCount}/{entryTarget}
                           </span>
+
                           <span>Pending: {entry.pendingCount}</span>
+
                           <span>Emails: {entry.emailSlots?.length || 0}</span>
+
                           {typeof entry.amount === "number" ? (
                             <span>Amount: ₹{entry.amount}</span>
                           ) : null}
@@ -290,19 +314,27 @@ export default function EmployeeLikeLinkEntriesPage() {
                           Approved
                         </Badge>
                       ) : entry.status === 0 ? (
-                        <Badge variant="destructive" className="bg-red-600 text-white inline-flex items-center gap-1">
+                        <Badge
+                          variant="destructive"
+                          className="bg-red-600 text-white inline-flex items-center gap-1"
+                        >
                           <XCircle className="h-3.5 w-3.5" />
                           Rejected
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="bg-yellow-400 text-black border-yellow-500 inline-flex items-center gap-1">
+                        <Badge
+                          variant="outline"
+                          className="bg-yellow-400 text-black border-yellow-500 inline-flex items-center gap-1"
+                        >
                           <Clock3 className="h-3.5 w-3.5" />
                           Pending
                         </Badge>
                       )}
 
                       <div className="text-xs text-gray-500 whitespace-nowrap">
-                        {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : "-"}
+                        {entry.createdAt
+                          ? new Date(entry.createdAt).toLocaleString()
+                          : "-"}
                       </div>
                     </div>
                   </button>
@@ -313,7 +345,8 @@ export default function EmployeeLikeLinkEntriesPage() {
                         <div className="text-sm">
                           {finalStatusSet ? (
                             <span className="text-gray-600">
-                              This task is already {entry.status === 1 ? "approved" : "rejected"}.
+                              This task is already{" "}
+                              {entry.status === 1 ? "approved" : "rejected"}.
                             </span>
                           ) : targetReached ? (
                             <span className="text-green-700 font-medium">
@@ -321,7 +354,8 @@ export default function EmployeeLikeLinkEntriesPage() {
                             </span>
                           ) : (
                             <span className="text-amber-700 font-medium">
-                              Approve/Reject will unlock only after completed count reaches {targetCount}.
+                              Approve/Reject will unlock only after completed count reaches{" "}
+                              {entryTarget}.
                             </span>
                           )}
                         </div>
@@ -333,7 +367,9 @@ export default function EmployeeLikeLinkEntriesPage() {
                             disabled={actionDisabled}
                             onClick={() => handleApprove(entry.taskId, 1)}
                           >
-                            {actionLoadingId === entry.taskId ? "Updating..." : "Approve"}
+                            {actionLoadingId === entry.taskId
+                              ? "Updating..."
+                              : "Approve"}
                           </Button>
 
                           <Button
@@ -342,7 +378,9 @@ export default function EmployeeLikeLinkEntriesPage() {
                             disabled={actionDisabled}
                             onClick={() => handleApprove(entry.taskId, 0)}
                           >
-                            {actionLoadingId === entry.taskId ? "Updating..." : "Reject"}
+                            {actionLoadingId === entry.taskId
+                              ? "Updating..."
+                              : "Reject"}
                           </Button>
                         </div>
                       </div>
@@ -356,6 +394,7 @@ export default function EmployeeLikeLinkEntriesPage() {
                             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="font-medium break-all">{slot.email}</p>
+
                                 <div className="flex flex-wrap items-center gap-2 mt-2">
                                   {slot.verified ? (
                                     <span className="inline-flex items-center gap-1 text-green-600 text-sm">
@@ -374,14 +413,18 @@ export default function EmployeeLikeLinkEntriesPage() {
                               <div className="text-sm text-gray-600 space-y-1 md:text-right">
                                 <p>
                                   Auth:{" "}
-                                  {slot.authAt ? new Date(slot.authAt).toLocaleString() : "-"}
+                                  {slot.authAt
+                                    ? new Date(slot.authAt).toLocaleString()
+                                    : "-"}
                                 </p>
+
                                 <p>
                                   Expires:{" "}
                                   {slot.authExpiresAt
                                     ? new Date(slot.authExpiresAt).toLocaleString()
                                     : "-"}
                                 </p>
+
                                 <p>
                                   Submitted:{" "}
                                   {slot.submittedAt
@@ -411,7 +454,9 @@ export default function EmployeeLikeLinkEntriesPage() {
                           </div>
                         ))
                       ) : (
-                        <div className="text-sm text-gray-500">No authenticated emails found.</div>
+                        <div className="text-sm text-gray-500">
+                          No authenticated emails found.
+                        </div>
                       )}
                     </div>
                   )}

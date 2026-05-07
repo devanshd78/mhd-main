@@ -38,6 +38,7 @@ interface LikeTaskStatus {
     taskId: string;
     userId: string;
     likeLinkId: string;
+    maxEmailsAllowed: number;
     completedCount: number;
     completedEmails: string[];
     activeEmail: string | null;
@@ -363,6 +364,10 @@ export default function LikePage() {
         }
     };
 
+    const getEmailTarget = (item: LikeTaskItem, status?: LikeTaskStatus) => {
+        return Number(status?.maxEmailsAllowed || item.target || 0);
+    };
+
     const renderedTasks = useMemo(() => tasks, [tasks]);
 
     if (loading) {
@@ -448,7 +453,7 @@ export default function LikePage() {
                                             </Badge>
 
                                             <Badge variant="outline">
-                                                Done {status?.completedCount ?? 0}/5
+                                                Done {status?.completedCount ?? 0}/{getEmailTarget(item, status)}
                                             </Badge>
 
                                             {timer.active && (
@@ -481,9 +486,8 @@ export default function LikePage() {
                                         <div className="flex justify-between gap-4">
                                             <span>Expires</span>
                                             <span
-                                                className={`shrink-0 ${
-                                                    expired ? "text-gray-400" : "text-green-600"
-                                                }`}
+                                                className={`shrink-0 ${expired ? "text-gray-400" : "text-green-600"
+                                                    }`}
                                             >
                                                 {label}
                                             </span>
@@ -525,7 +529,7 @@ export default function LikePage() {
 
                                         {status?.locked && (
                                             <div className="rounded-lg border border-green-300 bg-green-50 text-green-700 px-3 py-2 text-xs">
-                                                All 5 email slots are completed for this task.
+                                                All {getEmailTarget(item, status)} email slots are completed for this task.
                                             </div>
                                         )}
 
@@ -606,4 +610,4 @@ export default function LikePage() {
             </main>
         </>
     );
-}
+} 
