@@ -24,7 +24,13 @@ interface EmailSlot {
   authExpiresAt: string;
   submittedAt?: string;
   verified: boolean;
+
+  verificationState?: "pending" | "verified" | "failed" | string;
   verificationReason?: string;
+  verificationMessage?: string;
+  verifiedBy?: string;
+  videoId?: string;
+  youtubeRating?: "like" | "dislike" | "none" | "unspecified" | "" | string;
 }
 
 interface EntryItem {
@@ -71,6 +77,17 @@ interface LikeLinkResponse {
   entries?: EntryItem[];
 }
 
+interface LikeLinkItem {
+  _id: string;
+  title: string;
+  videoUrl?: string;
+  target?: number;
+  amount?: number;
+  createdAt?: string;
+  expireAt?: string;
+  status?: "active" | "expired";
+}
+
 export default function EmployeeLikeLinkEntriesPage() {
   const params = useSearchParams();
   const router = useRouter();
@@ -96,6 +113,26 @@ export default function EmployeeLikeLinkEntriesPage() {
 
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [likeLinks, setLikeLinks] = useState<LikeLinkItem[]>([]);
+  const [loadingLikeLinks, setLoadingLikeLinks] = useState(false);
+
+  const fetchLikeLinks = useCallback(async () => {
+    if (!employeeId) return;
+
+    try {
+      setLoadingLikeLinks(true);
+
+      const res = await api.get<LikeLinkItem[]>("/employee/likelinks", {
+        withCredentials: true,
+      });
+
+      setLikeLinks(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Failed to load like task videos", err);
+    } finally {
+      setLoadingLikeLinks(false);
+    }
+  }, [employeeId]);
 
   const fetchEntries = useCallback(
     async (pageNumber = pagination.page, pageLimit = pagination.limit) => {
@@ -147,8 +184,8 @@ export default function EmployeeLikeLinkEntriesPage() {
       } catch (err: any) {
         setError(
           err?.response?.data?.error ||
-            err?.response?.data?.message ||
-            "Failed to load entries."
+          err?.response?.data?.message ||
+          "Failed to load entries."
         );
       } finally {
         setLoading(false);
@@ -158,24 +195,22 @@ export default function EmployeeLikeLinkEntriesPage() {
   );
 
   useEffect(() => {
+    fetchLikeLinks();
     fetchEntries(1, pagination.limit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkId, employeeId]);
 
-  const totals = useMemo(() => {
-    return entries.reduce(
-      (acc, entry) => {
-        acc.users += 1;
-        acc.completed += Number(entry.completedCount || 0);
-        acc.pending += Number(entry.pendingCount || 0);
-        acc.totalEmails += Array.isArray(entry.emailSlots)
-          ? entry.emailSlots.length
-          : 0;
-        return acc;
-      },
-      { users: 0, completed: 0, pending: 0, totalEmails: 0 }
+  const isFailedSlot = (slot: EmailSlot) => {
+    return (
+      slot.verificationState === "failed" ||
+      slot.verificationMessage === "Like not detected" ||
+      (
+        Boolean(slot.submittedAt) &&
+        slot.verified !== true &&
+        String(slot.youtubeRating || "").toLowerCase() === "none"
+      )
     );
-  }, [entries]);
+  };
 
   const getEntryTarget = (entry?: EntryItem) => {
     const entryLimit = Number(entry?.maxEmailsAllowed || 0);
@@ -187,7 +222,75 @@ export default function EmployeeLikeLinkEntriesPage() {
     return 0;
   };
 
+  const getEntryReportStatus = (entry: EntryItem) => {
+    const target = getEntryTarget(entry);
+    const completed = Number(entry.completedCount || 0);
+    const failed = Array.isArray(entry.emailSlots)
+      ? entry.emailSlots.filter(isFailedSlot).length
+      : 0;
+
+    if (target > 0 && completed >= target) {
+      return "Approved";
+    }
+
+    if (failed > 0) {
+      return "Partial";
+    }
+
+    return "Pending";
+  };
+
+  const getEntryFailedCount = (entry: EntryItem) => {
+    return Array.isArray(entry.emailSlots)
+      ? entry.emailSlots.filter(isFailedSlot).length
+      : 0;
+  };
+
+  const totals = useMemo(() => {
+    return entries.reduce(
+      (acc, entry) => {
+        const reportStatus = getEntryReportStatus(entry);
+
+        acc.users += 1;
+
+        if (reportStatus === "Approved") acc.approvedUsers += 1;
+        else if (reportStatus === "Partial") acc.partialUsers += 1;
+        else acc.pendingUsers += 1;
+
+        acc.completed += Number(entry.completedCount || 0);
+        acc.failed += getEntryFailedCount(entry);
+
+        acc.totalEmails += Array.isArray(entry.emailSlots)
+          ? entry.emailSlots.length
+          : 0;
+
+        return acc;
+      },
+      {
+        users: 0,
+        approvedUsers: 0,
+        pendingUsers: 0,
+        partialUsers: 0,
+        completed: 0,
+        failed: 0,
+        totalEmails: 0,
+      }
+    );
+  }, [entries]);
+
   const targetCount = Number(likeLink?.target || 0);
+
+  const selectedVideoFromList = useMemo(() => {
+    return likeLinks.find((item) => item._id === linkId) || null;
+  }, [likeLinks, linkId]);
+
+  const handleVideoChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextLinkId = event.target.value;
+
+    if (!nextLinkId || nextLinkId === linkId) return;
+
+    router.push(`/employee/view-link?id=${nextLinkId}`);
+  };
 
   const toggleRow = (id: string) => {
     setOpenRows((prev) => ({
@@ -268,7 +371,7 @@ export default function EmployeeLikeLinkEntriesPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="space-y-2">
           <h1 className="text-2xl font-bold">
-            {likeLink?.title || "Like Link Entries"}
+            {likeLink?.title || selectedVideoFromList?.title || "Like Task Video Entries"}
           </h1>
 
           {likeLink?.videoUrl ? (
@@ -287,8 +390,11 @@ export default function EmployeeLikeLinkEntriesPage() {
             <span>Target: {targetCount}</span>
             <span>Total Entries: {pagination.totalEntries}</span>
             <span>This Page Users: {totals.users}</span>
-            <span>Completed: {totals.completed}</span>
-            <span>Pending: {totals.pending}</span>
+            <span>Approved Users: {totals.approvedUsers}</span>
+            <span>Pending Users: {totals.pendingUsers}</span>
+            <span>Partial Users: {totals.partialUsers}</span>
+            <span>Verified Likes: {totals.completed}</span>
+            <span>Failed Likes: {totals.failed}</span>
             <span>Total Auth Emails: {totals.totalEmails}</span>
           </div>
         </div>
@@ -297,6 +403,72 @@ export default function EmployeeLikeLinkEntriesPage() {
           ← Back
         </Button>
       </div>
+
+      <Card className="border bg-white">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold">Video-wise Like Task Entries</p>
+              <p className="text-xs text-gray-500">
+                Select any Like Task video to view its users and verification details.
+              </p>
+            </div>
+
+            <div className="w-full lg:w-[360px]">
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Select Video
+              </label>
+
+              <select
+                value={linkId || ""}
+                onChange={handleVideoChange}
+                disabled={loadingLikeLinks}
+                className="w-full h-10 rounded-md border bg-white px-3 py-2 text-sm"
+              >
+                <option value="">
+                  {loadingLikeLinks ? "Loading videos..." : "Select video"}
+                </option>
+
+                {likeLinks.map((item) => (
+                  <option key={item._id} value={item._id}>
+                    {item.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500">Selected Video</p>
+              <p className="text-sm font-medium truncate">
+                {likeLink?.title || selectedVideoFromList?.title || "-"}
+              </p>
+            </div>
+
+            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500">Target</p>
+              <p className="text-sm font-medium">{targetCount}</p>
+            </div>
+
+            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500">Amount</p>
+              <p className="text-sm font-medium">
+                {typeof likeLink?.amount === "number" ? `₹${likeLink.amount}` : "-"}
+              </p>
+            </div>
+
+            <div className="rounded-lg border bg-gray-50 px-3 py-2">
+              <p className="text-xs text-gray-500">Created</p>
+              <p className="text-sm font-medium">
+                {likeLink?.createdAt
+                  ? new Date(likeLink.createdAt).toLocaleDateString()
+                  : "-"}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border rounded-xl px-4 py-3 bg-white">
         <div className="text-sm text-gray-600">
@@ -345,7 +517,8 @@ export default function EmployeeLikeLinkEntriesPage() {
         <div className="space-y-4">
           {entries.map((entry) => {
             const isOpen = !!openRows[entry._id];
-
+            const reportStatus = getEntryReportStatus(entry);
+            const failedCount = getEntryFailedCount(entry);
             const displayName =
               entry.user?.name ||
               entry.user?.email ||
@@ -392,10 +565,12 @@ export default function EmployeeLikeLinkEntriesPage() {
 
                         <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-600">
                           <span>
-                            Completed: {entry.completedCount}/{entryTarget}
+                            Verified: {entry.completedCount}/{entryTarget}
                           </span>
 
-                          <span>Pending: {entry.pendingCount}</span>
+                          <span>Failed: {failedCount}</span>
+
+                          <span>Status: {reportStatus}</span>
 
                           <span>Emails: {entry.emailSlots?.length || 0}</span>
 
@@ -430,6 +605,15 @@ export default function EmployeeLikeLinkEntriesPage() {
                         </Badge>
                       )}
 
+                      {reportStatus === "Approved" ? (
+                        <Badge className="bg-green-600 text-white">Like: Approved</Badge>
+                      ) : reportStatus === "Partial" ? (
+                        <Badge className="bg-amber-500 text-white">Like: Partial</Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-white">
+                          Like: Pending
+                        </Badge>
+                      )}
                       <div className="text-xs text-gray-500 whitespace-nowrap">
                         {entry.createdAt
                           ? new Date(entry.createdAt).toLocaleString()
@@ -447,13 +631,17 @@ export default function EmployeeLikeLinkEntriesPage() {
                               This task is already{" "}
                               {entry.status === 1 ? "approved" : "rejected"}.
                             </span>
-                          ) : targetReached ? (
+                          ) : reportStatus === "Approved" ? (
                             <span className="text-green-700 font-medium">
-                              Target reached. You can now approve or reject this task.
+                              All required likes are verified. You can now approve or reject this task.
+                            </span>
+                          ) : reportStatus === "Partial" ? (
+                            <span className="text-red-700 font-medium">
+                              Some likes failed verification. This user is Partial and does not count as active.
                             </span>
                           ) : (
                             <span className="text-amber-700 font-medium">
-                              Approve/Reject will unlock only after completed count reaches{" "}
+                              Verification is still pending. Approve/Reject will unlock only after verified count reaches{" "}
                               {entryTarget}.
                             </span>
                           )}
@@ -500,6 +688,11 @@ export default function EmployeeLikeLinkEntriesPage() {
                                       <CheckCircle2 className="h-4 w-4" />
                                       Verified
                                     </span>
+                                  ) : isFailedSlot(slot) ? (
+                                    <span className="inline-flex items-center gap-1 text-red-600 text-sm">
+                                      <XCircle className="h-4 w-4" />
+                                      Failed
+                                    </span>
                                   ) : (
                                     <span className="inline-flex items-center gap-1 text-amber-600 text-sm">
                                       <Clock3 className="h-4 w-4" />
@@ -536,11 +729,12 @@ export default function EmployeeLikeLinkEntriesPage() {
                             <div className="text-sm">
                               {slot.verificationReason ? (
                                 <div
-                                  className={`rounded-lg px-3 py-2 ${
-                                    slot.verified
-                                      ? "bg-green-50 text-green-700 border border-green-200"
+                                  className={`rounded-lg px-3 py-2 ${slot.verified
+                                    ? "bg-green-50 text-green-700 border border-green-200"
+                                    : isFailedSlot(slot)
+                                      ? "bg-red-50 text-red-700 border border-red-200"
                                       : "bg-amber-50 text-amber-700 border border-amber-200"
-                                  }`}
+                                    }`}
                                 >
                                   {slot.verificationReason}
                                 </div>

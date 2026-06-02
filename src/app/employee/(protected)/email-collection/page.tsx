@@ -11,7 +11,6 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Filter, RefreshCcw, ArrowUpRight, Loader2, IndianRupee } from 'lucide-react';
 import Swal from 'sweetalert2';
-import 'sweetalert2/dist/sweetalert2.min.css';
 import { post } from '@/lib/axios';
 
 export type Platform = 'youtube' | 'instagram' | 'tiktok' | 'twitter' | 'facebook' | 'other' | string;
