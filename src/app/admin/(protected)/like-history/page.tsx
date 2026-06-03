@@ -276,6 +276,19 @@ export default function LikeTaskModulePage() {
     )
   }, [adminEmployees, dashboardEmployeeId])
 
+  const performanceVideoIdSet = useMemo(() => {
+    if (!performance) return null
+
+    return new Set(
+      (performance.videoBreakdown || []).map((video) =>
+        String(video.likeLinkId)
+      )
+    )
+  }, [performance])
+
+  const isVideoListPerformanceFiltered =
+    viewMode === 'videos' && Boolean(dashboardEmployeeId && performance)
+
   const resetModal = () => {
     setLinkTitle('')
     setVideoUrl('')
@@ -286,9 +299,14 @@ export default function LikeTaskModulePage() {
 
   const filteredVideos = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return videos
 
-    return videos.filter((video) =>
+    const baseVideos = performanceVideoIdSet
+      ? videos.filter((video) => performanceVideoIdSet.has(String(video.likeLinkId)))
+      : videos
+
+    if (!q) return baseVideos
+
+    return baseVideos.filter((video) =>
       [
         video.videoTitle,
         video.videoUrl || '',
@@ -299,7 +317,7 @@ export default function LikeTaskModulePage() {
         String(video.notStartedCount || 0),
       ].some((v) => String(v).toLowerCase().includes(q))
     )
-  }, [videos, query])
+  }, [videos, query, performanceVideoIdSet])
 
   const filteredEmployees = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -949,7 +967,7 @@ export default function LikeTaskModulePage() {
               {performanceLoading ? (
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               ) : null}
-              Apply Date Range
+              Apply Filter
             </Button>
           </div>
         </div>
@@ -1018,72 +1036,37 @@ export default function LikeTaskModulePage() {
                 </div>
               </Card>
             </div>
-
-            {performance.videoBreakdown?.length ? (
-              <Card className="p-4 border bg-gray-50 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold">
-                      Video Performance Breakdown
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Approved active users counted per like task video.
-                    </p>
-                  </div>
-
-                  <Badge variant="outline" className="bg-white">
-                    {performance.videoBreakdown.length} video
-                    {performance.videoBreakdown.length !== 1 ? 's' : ''}
-                  </Badge>
-                </div>
-
-                <div className="max-h-56 overflow-y-auto divide-y rounded-lg border bg-white">
-                  {performance.videoBreakdown.map((video) => (
-                    <div
-                      key={video.likeLinkId}
-                      className="flex items-center justify-between gap-3 px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {video.videoTitle}
-                        </p>
-
-                        {video.videoUrl ? (
-                          <a
-                            href={video.videoUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-xs text-blue-600 underline inline-flex items-center gap-1"
-                          >
-                            Open Video
-                            <ExternalLinkIcon className="h-3 w-3" />
-                          </a>
-                        ) : null}
-                      </div>
-
-                      <Badge className="bg-green-600 text-white shrink-0">
-                        {video.approvedActiveUsers} active
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            ) : null}
           </div>
         ) : null}
       </Card>
 
-      {/* Search */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <Input
-          placeholder="Search current table..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="max-w-md"
-        />
+      {/* Search / Applied Filter Status */}
+      <Card className="p-4 border bg-white shadow-sm space-y-3">
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <Input
+            placeholder={
+              viewMode === 'videos'
+                ? 'Search video title or URL...'
+                : 'Search current table...'
+            }
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="max-w-md"
+          />
+
+          <div className="flex flex-wrap items-center gap-2">
+            {viewMode === 'videos' && (
+              <Badge variant="outline" className="bg-white">
+                {filteredVideos.length} result
+                {filteredVideos.length !== 1 ? 's' : ''}
+              </Badge>
+            )}
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </div>
+        </div>
+      </Card>
 
       {/* Loading */}
       {loading && (
@@ -1113,7 +1096,7 @@ export default function LikeTaskModulePage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredVideos.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={3} className="px-4 py-10 text-center text-gray-500">
                     No like task videos found.
                   </td>
                 </tr>

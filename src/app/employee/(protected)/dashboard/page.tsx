@@ -763,10 +763,6 @@ export default function Dashboard() {
             placeholder={`Search in ${titleText.toLowerCase()}...`}
             className="max-w-md"
           />
-
-          <Badge variant="outline" className="bg-white w-fit">
-            {visibleItems.length} result{visibleItems.length !== 1 ? 's' : ''}
-          </Badge>
         </div>
       </Card>
 
